@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SheSafe — Women Safety & Emergency System</title>
+  
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS for Interactive OpenStreetMap -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <!-- SheSafe App Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+</head>
+<body>
+
+  <!-- Top Emergency Strip (112 | 181) -->
+  <div class="quick-emergency-strip">
+    <span>🛡️ Emergency Helplines 24x7:</span>
+    <a href="tel:112">🚨 112 (National ERSS)</a>
+    <a href="tel:181">👩 181 (Women Helpline)</a>
+    <a href="tel:100">👮 100 (Police)</a>
+  </div>
+
+  <!-- Header Navigation -->
+  <header class="header-nav">
+    <div class="header-container">
+      <div style="display: flex; align-items: center; gap: 0.85rem;">
+        <button id="btnNavToggle" class="menu-toggle-btn" aria-label="Toggle Navigation Drawer">
+          ☰
+        </button>
+        <a href="#" id="brandLogoLink" class="brand-badge">
+          <div class="brand-icon">🛡️</div>
+          <div class="brand-text">
+            <h1 class="brand-title">SheSafe</h1>
+            <span class="brand-tagline">Women Safety & Emergency System</span>
+          </div>
+        </a>
+      </div>
+
+      <div class="header-actions">
+        <div class="live-indicator-pill">
+          <div class="pulse-dot"></div>
+          <span>GPS Active</span>
+        </div>
+        <div id="headerUserBadge" class="user-profile-badge" title="View Profile">
+          👤 Sweta
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Side Drawer -->
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+  <aside id="navDrawer" class="nav-drawer">
+    <div class="drawer-header">
+      <div class="brand-badge">
+        <div class="brand-icon" style="width: 34px; height: 34px; font-size: 1.1rem;">🛡️</div>
+        <div>
+          <h3 style="font-size: 1.1rem; color: var(--primary);">SheSafe</h3>
+          <span style="font-size: 0.7rem; color: var(--text-muted);">Emergency Guard</span>
+        </div>
+      </div>
+      <button id="btnCloseDrawer" style="background: none; font-size: 1.25rem;">✕</button>
+    </div>
+    <ul class="drawer-nav-list">
+      <li class="drawer-nav-item"><a href="#" data-view="view-dashboard">🏠 Dashboard</a></li>
+      <li class="drawer-nav-item"><a href="#" class="trigger-sos-btn" style="color: #dc2626;">🆘 Trigger SOS</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-emergency">📞 Emergency Numbers</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-safezones">📍 Safe Zones & Nearby</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-livemap">🗺️ Live Location Share</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-contacts">👥 Emergency Contacts</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-timer">⏰ Safety Timer</a></li>
+      <li class="drawer-nav-item"><a href="#" data-modal-open="modalIncidentReport">📝 Report Incident</a></li>
+      <li class="drawer-nav-item"><a href="#" data-view="view-community">📢 Community Alerts</a></li>
+      <li class="drawer-nav-item"><a href="#" data-modal-open="modalProfile">👤 My Profile</a></li>
+      <li class="drawer-nav-item"><a href="#" data-modal-open="modalSettings">⚙️ Settings</a></li>
+      <li class="drawer-nav-item" style="margin-top: 1rem; border-top: 1px solid var(--border-color);">
+        <a href="#" id="btnLogout" style="color: #ef4444;">🚪 Logout</a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- Main Content Wrap -->
+  <main class="main-content-wrap">
+
+    <!-- ====================================================================
+         1️⃣ LANDING / LOGIN & SIGN UP PAGE
+         ==================================================================== -->
+    <section id="view-auth" class="view-section">
+      <div class="auth-hero-container">
+        <div class="auth-card">
+          <div class="auth-header">
+            <div class="auth-logo-shield">🛡️</div>
+            <h2 class="auth-title">SheSafe</h2>
+            <p class="auth-subtitle">Women Safety & Emergency System</p>
+          </div>
+
+          <div class="auth-tab-buttons">
+            <button id="tabBtnLogin" class="auth-tab-btn active">Login</button>
+            <button id="tabBtnSignup" class="auth-tab-btn">Create Account</button>
+          </div>
+
+          <!-- Login Form -->
+          <form id="formLogin">
+            <div class="form-group">
+              <label for="loginIdentifier">User ID / Email</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">✉️</span>
+                <input type="text" id="loginIdentifier" class="form-input" placeholder="sweta@example.com or mobile" required value="sweta@example.com">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="loginPassword">Password</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">🔒</span>
+                <input type="password" id="loginPassword" class="form-input" placeholder="Enter your password" required value="password123">
+                <button type="button" class="pw-toggle-btn" title="Toggle password visibility">👁️</button>
+              </div>
+            </div>
+
+            <div class="auth-action-row">
+              <label class="auth-checkbox">
+                <input type="checkbox" id="rememberMe" checked> Remember me
+              </label>
+              <a href="#" id="linkForgotPw" class="link-btn">Forgot Password?</a>
+            </div>
+
+            <button type="submit" class="btn-primary">
+              Login <span>➔</span>
+            </button>
+
+            <!-- Quick Instant Demo Login Button for Judges & Evaluators -->
+            <div class="demo-login-box">
+              <p>⚡ Hackathon Demo Quick Access</p>
+              <button type="button" id="btnDemoLogin" class="btn-demo-quick">
+                🚀 Instant 1-Click Demo Login (Sweta)
+              </button>
+            </div>
+          </form>
+
+          <!-- Sign Up Form -->
+          <form id="formSignup" style="display: none;">
+            <div class="form-group">
+              <label for="signupName">Full Name</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">👤</span>
+                <input type="text" id="signupName" class="form-input" placeholder="e.g. Sweta Sharma" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupMobile">Mobile Number</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">📱</span>
+                <input type="tel" id="signupMobile" class="form-input" placeholder="+91 [REDACTED-PII]" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupEmail">Email Address</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">✉️</span>
+                <input type="email" id="signupEmail" class="form-input" placeholder="sweta@example.com">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupPassword">Password</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">🔒</span>
+                <input type="password" id="signupPassword" class="form-input" placeholder="Create strong password" required>
+                <button type="button" class="pw-toggle-btn">👁️</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupConfirmPassword">Confirm Password</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">🔒</span>
+                <input type="password" id="signupConfirmPassword" class="form-input" placeholder="Confirm your password" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupEmergencyName">Emergency Contact Name</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">👥</span>
+                <input type="text" id="signupEmergencyName" class="form-input" placeholder="e.g. Mom (Sunita Sharma)">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="signupEmergencyPhone">Emergency Contact Phone</label>
+              <div class="form-control-wrap">
+                <span class="form-icon">📞</span>
+                <input type="tel" id="signupEmergencyPhone" class="form-input" placeholder="+91 [REDACTED-PII]">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="auth-checkbox">
+                <input type="checkbox" id="signupLocationPerm" checked> Allow real-time GPS location permission
+              </label>
+            </div>
+
+            <button type="submit" class="btn-primary">
+              Create Account <span>➔</span>
+            </button>
+          </form>
+
+          <div class="auth-footer-help">
+            <div class="help-label">Emergency Immediate Help 24/7</div>
+            <div class="auth-footer-numbers">
+              <a href="tel:112" style="color: var(--sos-red); text-decoration: none;">🚨 112</a>
+              <span>|</span>
+              <a href="tel:181" style="color: var(--sos-red); text-decoration: none;">👩 181</a>
+              <span>|</span>
+              <a href="tel:100" style="color: var(--sos-red); text-decoration: none;">👮 100</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         2️⃣ MAIN DASHBOARD
+         ==================================================================== -->
+    <section id="view-dashboard" class="view-section active">
+      
+      <!-- Welcome Hero Banner -->
+      <div class="welcome-hero">
+        <div class="welcome-text">
+          <h2 id="welcomeGreeting">Good Evening, Sweta 👋</h2>
+          <p>Stay Safe. Stay Connected.</p>
+        </div>
+        <div class="quick-shield-status">
+          <div class="shield-pulse-icon">🛡️</div>
+          <div>
+            <div class="shield-info-title">SheSafe Shield: Active</div>
+            <div class="shield-info-sub">3 Emergency Contacts • Live GPS Locked</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🚨 Main 4 Emergency Big Hero Buttons -->
+      <div class="emergency-hero-grid">
+        <!-- 1. SOS Button -->
+        <button id="btnHeroSos" class="hero-btn-card btn-card-sos">
+          <div class="hero-card-header">
+            <div class="hero-icon-bubble">🆘</div>
+            <span class="hero-tag">EMERGENCY</span>
+          </div>
+          <div class="hero-card-body">
+            <h3>SOS</h3>
+            <p>Send Instant Alert & Police Dispatch</p>
+          </div>
+        </button>
+
+        <!-- 2. Emergency Numbers Button -->
+        <button class="hero-btn-card btn-card-emergency" data-view="view-emergency">
+          <div class="hero-card-header">
+            <div class="hero-icon-bubble">📞</div>
+            <span class="hero-tag">HELPLINES</span>
+          </div>
+          <div class="hero-card-body">
+            <h3>EMERGENCY</h3>
+            <p>112, 181, Police & Medical Support</p>
+          </div>
+        </button>
+
+        <!-- 3. Safe Zone Button -->
+        <button class="hero-btn-card btn-card-safezone" data-view="view-safezones">
+          <div class="hero-card-header">
+            <div class="hero-icon-bubble">📍</div>
+            <span class="hero-tag">NEARBY</span>
+          </div>
+          <div class="hero-card-body">
+            <h3>SAFE ZONE</h3>
+            <p>Find Police, Hospitals & Safe Shelters</p>
+          </div>
+        </button>
+
+        <!-- 4. Live Location Share Button -->
+        <button class="hero-btn-card btn-card-liveloc" data-view="view-livemap">
+          <div class="hero-card-header">
+            <div class="hero-icon-bubble">🗺️</div>
+            <span class="hero-tag">TRACKING</span>
+          </div>
+          <div class="hero-card-body">
+            <h3>LIVE LOCATION</h3>
+            <p>Share Live Route with Guardians</p>
+          </div>
+        </button>
+      </div>
+
+      <!-- Dashboard Safety Features Section -->
+      <div class="section-heading-row">
+        <h3 class="section-title">🛡️ Safety Features</h3>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Smart Guardian Tools</span>
+      </div>
+
+      <div class="features-grid">
+        <!-- 👥 Emergency Contacts -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-contacts">👥</div>
+            <div class="feature-box-content">
+              <h4>Emergency Contacts</h4>
+              <p>Notify trusted family & friends automatically during SOS.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-view="view-contacts">
+            Manage Contacts (3) ➔
+          </button>
+        </div>
+
+        <!-- 🟢 Safety Check-In ("I'M SAFE") -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-safe">🟢</div>
+            <div class="feature-box-content">
+              <h4>Safety Check-In</h4>
+              <p>One-tap reassurance message to contacts: "I'm Safe".</p>
+            </div>
+          </div>
+          <button id="btnImSafeCheckIn" class="feature-box-btn btn-accent">
+            🟢 I'M SAFE — Check In
+          </button>
+        </div>
+
+        <!-- ⏰ Safety Timer -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-timer">⏰</div>
+            <div class="feature-box-content">
+              <h4>Safety Timer</h4>
+              <p>Set journey countdown. Auto-alerts contacts if not checked in.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-view="view-timer">
+            Start Journey Timer ➔
+          </button>
+        </div>
+
+        <!-- 🗺️ My Safety Map -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-map">🗺️</div>
+            <div class="feature-box-content">
+              <h4>My Safety Map</h4>
+              <p>Explore safe spots, pink booths & 24/7 pharmacies on interactive map.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-view="view-safezones">
+            Open Interactive Map ➔
+          </button>
+        </div>
+
+        <!-- 🏥 Nearby Help -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-nearby">🏥</div>
+            <div class="feature-box-content">
+              <h4>Nearby Help</h4>
+              <p>Locate closest police stations, emergency rooms & shelters.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-view="view-safezones">
+            Find Nearest Facilities ➔
+          </button>
+        </div>
+
+        <!-- 📝 Incident Report -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-report">📝</div>
+            <div class="feature-box-content">
+              <h4>Report Incident</h4>
+              <p>Confidential log of harassment, stalking or unsafe incidents.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-modal-open="modalIncidentReport">
+            Submit Incident Report ➔
+          </button>
+        </div>
+
+        <!-- 📢 Community Alert -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-community">📢</div>
+            <div class="feature-box-content">
+              <h4>Community Alerts</h4>
+              <p>Verified crowd-sourced safety notices & low-light street alerts.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-view="view-community">
+            View Live Safety Alerts ➔
+          </button>
+        </div>
+
+        <!-- ⚙️ Settings -->
+        <div class="feature-box">
+          <div class="feature-box-top">
+            <div class="feature-icon-wrapper icon-settings">⚙️</div>
+            <div class="feature-box-content">
+              <h4>Safety Settings</h4>
+              <p>Customize siren volume, location accuracy & SMS triggers.</p>
+            </div>
+          </div>
+          <button class="feature-box-btn" data-modal-open="modalSettings">
+            Preferences & Security ➔
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         4️⃣ 📞 EMERGENCY NUMBERS VIEW
+         ==================================================================== -->
+    <section id="view-emergency" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">📞 Emergency Helpline Numbers</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">24x7 Official Emergency Support Services across India</p>
+        </div>
+      </div>
+
+      <div id="emergencyNumbersList" class="helplines-grid">
+        <!-- Dynamically populated by SheSafeFeatures.loadEmergencyNumbers() -->
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         5️⃣ 📍 SAFE ZONE & NEARBY PLACES VIEW
+         ==================================================================== -->
+    <section id="view-safezones" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">📍 Nearby Safe Places & Live Situation</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Real-time proximity, 24/7 security hubs & situation-adapted safe zones</p>
+        </div>
+        <div>
+          <button id="btnRefreshSafeZones" class="btn-quick-search">
+            🔄 Re-Scan Location
+          </button>
+        </div>
+      </div>
+
+      <!-- Real-Time Situation Assessment Banner (Auto sets according to situation) -->
+      <div id="situationStatusBanner"></div>
+
+      <!-- Quick External Google Maps Search Fallbacks -->
+      <div class="nearby-quick-google-strip" style="margin-bottom: 1rem;">
+        <span style="font-size: 0.78rem; font-weight: 700; color: #475569; display: flex; align-items: center;">Instant Live Radar:</span>
+        <a class="btn-quick-search" href="https://www.google.com/maps/search/Police+Station+near+me" target="_blank">👮 Police Station Near Me</a>
+        <a class="btn-quick-search" href="https://www.google.com/maps/search/Hospital+near+me" target="_blank">🏥 Hospital Near Me</a>
+        <a class="btn-quick-search" href="https://www.google.com/maps/search/24+hour+Pharmacy+near+me" target="_blank">💊 24h Pharmacy Near Me</a>
+      </div>
+
+      <div class="map-page-layout">
+        <!-- Leaflet Map Container -->
+        <div class="map-viewport-wrapper">
+          <div id="safeZoneMap"></div>
+        </div>
+
+        <!-- Nearby List Sidebar -->
+        <div class="safe-places-sidebar" id="safePlacesList">
+          <!-- Populated dynamically by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         6️⃣ 🗺️ LIVE LOCATION SHARING VIEW
+         ==================================================================== -->
+    <section id="view-livemap" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">🗺️ Real-Time Live Location Sharing</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Stream high-accuracy GPS coordinates & battery state to your trusted guardians</p>
+        </div>
+      </div>
+
+      <!-- Live Share Banner -->
+      <div class="live-share-status-card">
+        <div class="share-status-text" style="flex: 1; min-width: 280px;">
+          <h3 id="liveShareStatusBadge">Location Sharing: ON 🟢</h3>
+          <p>Current Verified Spot: <span class="live-current-address">Detecting GPS street address...</span></p>
+          <div style="font-size: 0.78rem; color: #4b5563; margin-top: 0.4rem;">
+            📍 <span id="liveCoordsDisplay">28.6328° N, 77.2197° E (±4m)</span> • <span id="liveLastUpdatedTime">Live GPS • Just now</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+          <!-- 1-Click WhatsApp Live Share -->
+          <button id="btnShareWhatsApp" class="btn-whatsapp" title="Share live tracking on WhatsApp">
+            💬 Share via WhatsApp
+          </button>
+          <!-- 1-Click SMS Live Share -->
+          <button id="btnShareSms" class="btn-sms" title="Share live tracking via SMS">
+            📱 Share via SMS
+          </button>
+          <button id="btnCopyTrackLink" style="background: white; border: 1px solid #c4b5fd; color: #6d28d9; padding: 0.65rem 1rem; border-radius: var(--radius-full); font-weight: 700; font-size: 0.85rem;">
+            📋 Copy Link
+          </button>
+          <a href="/track.html" target="_blank" style="background: #1e293b; color: white; padding: 0.65rem 1rem; border-radius: var(--radius-full); font-weight: 700; font-size: 0.85rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+            🛡️ Open Guardian View ↗
+          </a>
+          <button id="btnToggleLiveSharing" class="live-toggle-btn btn-stop">
+            🛑 Stop Sharing
+          </button>
+        </div>
+      </div>
+
+      <div class="map-page-layout">
+        <div class="map-viewport-wrapper">
+          <div id="liveShareMap"></div>
+        </div>
+
+        <div>
+          <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #1e293b;">Shared With Emergency Contacts</h4>
+          <div class="shared-with-contacts-list" id="sharedWithContactsList">
+            <!-- Dynamically populated -->
+          </div>
+          <div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 0.8rem; color: #64748b;">
+            💡 <strong>Real GPS Protection:</strong> When you walk, drive, or board a vehicle, your exact path trail updates continuously. Anyone with the live link can follow your route live.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         👥 EMERGENCY CONTACTS VIEW
+         ==================================================================== -->
+    <section id="view-contacts" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">👥 Emergency Contacts</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Trusted individuals who receive instant SOS alerts, live GPS pins & SMS</p>
+        </div>
+        <button class="btn-primary" data-modal-open="modalAddContact" style="width: auto; padding: 0.55rem 1.15rem; font-size: 0.85rem;">
+          + Add Contact
+        </button>
+      </div>
+
+      <div class="auth-card" style="max-width: 650px; margin: 0 auto; box-shadow: var(--shadow-sm);">
+        <div id="contactsListContainer">
+          <!-- Populated by JS -->
+        </div>
+
+        <div style="margin-top: 1.5rem; text-align: center;">
+          <button class="btn-primary" data-modal-open="modalAddContact">
+            + Add New Emergency Contact
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         ⏰ SAFETY TIMER VIEW
+         ==================================================================== -->
+    <section id="view-timer" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">⏰ Safety Timer (Journey Guard)</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Protect your commute. If timer ends without check-in, SOS automatically triggers.</p>
+        </div>
+      </div>
+
+      <div class="auth-card" style="max-width: 520px; margin: 0 auto;">
+        
+        <!-- Active Countdown Card -->
+        <div id="timerActiveCard" style="display: none;">
+          <div class="timer-display-box">
+            <div id="timerRouteLabel" class="timer-route-label">College ➔ Home</div>
+            <div id="timerCountdownDisplay" class="timer-digits">15:00</div>
+            <div style="font-size: 0.8rem; color: #b45309; margin-top: 0.35rem;">
+              ⏳ Active Guard: Tap "I'm Safe" once you arrive safely
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem;">
+            <button id="btnImSafeCheckInTimer" class="btn-primary" style="background: #10b981;" onclick="SheSafeFeatures.stopSafetyTimer(); SheSafeFeatures.performCheckIn();">
+              🟢 I'M SAFE — Arrived
+            </button>
+            <button id="btnStopSafetyTimer" class="btn-primary" style="background: #64748b;">
+              Cancel Timer
+            </button>
+          </div>
+        </div>
+
+        <!-- Setup Form -->
+        <div id="timerSetupCard">
+          <div class="form-group">
+            <label for="timerOrigin">I'm travelling from:</label>
+            <div class="form-control-wrap">
+              <span class="form-icon">📍</span>
+              <input type="text" id="timerOrigin" class="form-input" placeholder="e.g. College / Office" value="College Campus">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="timerDestination">To Destination:</label>
+            <div class="form-control-wrap">
+              <span class="form-icon">🏠</span>
+              <input type="text" id="timerDestination" class="form-input" placeholder="e.g. Home" value="Home">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="timerDurationMins">Expected Travel Duration:</label>
+            <div class="form-control-wrap">
+              <span class="form-icon">⏱️</span>
+              <select id="timerDurationMins" class="form-input">
+                <option value="5">5 Minutes (Short Walk / Demo)</option>
+                <option value="15" selected>15 Minutes (Nearby Commute)</option>
+                <option value="30">30 Minutes (Metro / Auto Ride)</option>
+                <option value="45">45 Minutes (Bus / Long Route)</option>
+                <option value="60">60 Minutes (1 Hour)</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="btnStartSafetyTimer" class="btn-primary">
+            ⏰ Start Safety Timer
+          </button>
+        </div>
+
+        <!-- Recent Check-Ins Log -->
+        <div style="margin-top: 1.75rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem;">
+          <h4 style="font-size: 0.9rem; margin-bottom: 0.5rem; color: #1e293b;">Recent Check-Ins</h4>
+          <div id="checkInHistoryList">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         📢 COMMUNITY ALERTS VIEW
+         ==================================================================== -->
+    <section id="view-community" class="view-section">
+      <div class="section-heading-row">
+        <div>
+          <button class="link-btn" data-view="view-dashboard" style="margin-bottom: 0.25rem;">← Back to Dashboard</button>
+          <h2 class="section-title">📢 Community Safety Alerts</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">Verified incidents, poorly lit zones & local safety alerts reported by women</p>
+        </div>
+        <button class="btn-primary" data-modal-open="modalCommunityAlert" style="width: auto; padding: 0.55rem 1.15rem; font-size: 0.85rem;">
+          + Post Safety Alert
+        </button>
+      </div>
+
+      <div style="max-width: 720px; margin: 0 auto;">
+        <div id="communityAlertsFeed">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ====================================================================
+       3️⃣ 🆘 SOS ACTIVATED MODAL & EMERGENCY SIMULATION OVERLAY
+       ==================================================================== -->
+  <div id="sosModalOverlay" class="sos-overlay">
+    <div class="sos-modal-content">
+      <div class="sos-modal-header">
+        <div class="sos-pulsing-badge">
+          <div class="pulse-dot" style="background: white;"></div>
+          EMERGENCY DISPATCH INITIATED
+        </div>
+        <h2 class="sos-title">🚨 SOS ACTIVATED</h2>
+        <button id="btnSosToggleSound" class="sos-sound-toggle-btn">
+          🔊 Siren Active
+        </button>
+      </div>
+
+      <div class="sos-modal-body">
+        <ul class="sos-checklist">
+          <li id="sosCheck1" class="sos-check-item">
+            <span class="sos-check-icon">✓</span>
+            <span>Emergency alert prepared</span>
+          </li>
+          <li id="sosCheck2" class="sos-check-item">
+            <span class="sos-check-icon">✓</span>
+            <span>Current location captured</span>
+          </li>
+          <li id="sosCheck3" class="sos-check-item">
+            <span class="sos-check-icon">✓</span>
+            <span>Emergency contacts notified</span>
+          </li>
+          <li id="sosCheck4" class="sos-check-item">
+            <span class="sos-check-icon">✓</span>
+            <span>Help request initiated</span>
+          </li>
+        </ul>
+
+        <!-- Live Location Preview Box -->
+        <div class="sos-live-location-preview">
+          <div class="sos-preview-title">
+            <span>📍</span> Dispatched Location & Telemetry:
+          </div>
+          <div id="sosLiveLocationText" class="sos-preview-text">
+            Capturing GPS coordinates...
+          </div>
+        </div>
+
+        <div class="sos-modal-actions">
+          <button id="btnCancelSos" class="btn-cancel-sos">
+            🛑 Cancel SOS
+          </button>
+          <a href="tel:112" class="btn-call-112-direct">
+            📞 Direct Call 112
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: Interactive Calling Screen Simulation
+       ==================================================================== -->
+  <div id="modalCallScreen" class="modal-overlay">
+    <div class="call-modal-content">
+      <div id="callAvatarIcon" class="call-avatar">📞</div>
+      <h3 id="callContactName" style="font-size: 1.4rem; margin-bottom: 0.25rem;">National Emergency</h3>
+      <div id="callContactNumber" style="font-size: 1.15rem; color: #94a3b8; font-weight: 700;">112</div>
+      <div id="callStatusText" style="margin-top: 0.75rem; color: #10b981; font-size: 0.9rem;">Connecting...</div>
+      <div id="callTimerText" style="font-size: 1.25rem; font-family: monospace; margin-top: 0.25rem;">00:00</div>
+
+      <div>
+        <button id="btnEndActiveCall" class="btn-end-call" title="End Call">
+          📵
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: ⚠️ Safety Check Required (Timer Expired)
+       ==================================================================== -->
+  <div id="modalTimerAlert" class="modal-overlay">
+    <div class="modal-window" style="border: 2px solid #f59e0b; text-align: center;">
+      <div style="background: #fffbeb; padding: 2rem 1.5rem 1rem;">
+        <div style="font-size: 3rem; margin-bottom: 0.5rem;">⚠️</div>
+        <h3 style="font-size: 1.4rem; color: #92400e; margin-bottom: 0.5rem;">Safety Check Required</h3>
+        <p style="color: #78350f; font-size: 0.92rem;">Your expected journey timer has elapsed. Are you safe?</p>
+      </div>
+      <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <button class="btn-primary" style="background: #10b981;" onclick="SheSafeApp.closeModal('modalTimerAlert'); SheSafeFeatures.performCheckIn();">
+          🟢 I'M SAFE — I Have Arrived
+        </button>
+        <button class="btn-primary" style="background: #dc2626;" onclick="SheSafeApp.closeModal('modalTimerAlert'); SheSafeSOS.triggerSOS();">
+          🚨 SEND ALERT — I Need Help!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: Add Emergency Contact
+       ==================================================================== -->
+  <div id="modalAddContact" class="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3>+ Add Emergency Contact</h3>
+        <button class="btn-close-modal" data-modal-close="modalAddContact">✕</button>
+      </div>
+      <form id="formAddContact">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="contactName">Contact Full Name</label>
+            <input type="text" id="contactName" class="form-input" placeholder="e.g. Papa / Brother / Roommate" required>
+          </div>
+          <div class="form-group">
+            <label for="contactPhone">Mobile Number</label>
+            <input type="tel" id="contactPhone" class="form-input" placeholder="+91 [REDACTED-PII]" required>
+          </div>
+          <div class="form-group">
+            <label for="contactRelation">Relationship</label>
+            <input type="text" id="contactRelation" class="form-input" placeholder="e.g. Father / Sister / Friend">
+          </div>
+          <div class="form-group">
+            <label class="auth-checkbox">
+              <input type="checkbox" id="contactIsPrimary"> Set as Primary SOS Contact
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close-modal" data-modal-close="modalAddContact" style="font-size: 0.85rem; padding: 0.5rem 1rem;">Cancel</button>
+          <button type="submit" class="btn-primary" style="width: auto; padding: 0.5rem 1.25rem;">Save Contact</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: Report Incident
+       ==================================================================== -->
+  <div id="modalIncidentReport" class="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3>📝 Report Incident</h3>
+        <button class="btn-close-modal" data-modal-close="modalIncidentReport">✕</button>
+      </div>
+      <form id="formIncidentReport">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="incidentType">Incident Type:</label>
+            <select id="incidentType" class="form-input">
+              <option value="Harassment">Harassment</option>
+              <option value="Threat">Threat / Intimidation</option>
+              <option value="Stalking">Stalking</option>
+              <option value="Eve-teasing">Eve-teasing / Inappropriate Remarks</option>
+              <option value="Low Lighting">Broken Streetlights / Desolate Area</option>
+              <option value="Other">Other Safety Hazard</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="incidentLocation">Incident Spot / Landmark:</label>
+            <input type="text" id="incidentLocation" class="form-input" placeholder="e.g. Near Metro Pillar 42, Connaught Place" value="Near City Bus Terminal Gate 2">
+          </div>
+
+          <div class="form-group">
+            <label for="incidentDesc">Description:</label>
+            <textarea id="incidentDesc" class="form-input" rows="3" placeholder="Provide details like vehicle number, physical descriptions, or specifics..." required></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="auth-checkbox">
+              <input type="checkbox" id="incidentAnonymous" checked> Submit Anonymously (Hide my personal identity)
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close-modal" data-modal-close="modalIncidentReport" style="font-size: 0.85rem; padding: 0.5rem 1rem;">Cancel</button>
+          <button type="submit" class="btn-primary" style="width: auto; padding: 0.5rem 1.25rem;">Submit Report</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: Post Community Alert
+       ==================================================================== -->
+  <div id="modalCommunityAlert" class="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3>📢 Post Safety Concern / Alert</h3>
+        <button class="btn-close-modal" data-modal-close="modalCommunityAlert">✕</button>
+      </div>
+      <form id="formCommunityAlert">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="caTitle">Alert Headline:</label>
+            <input type="text" id="caTitle" class="form-input" placeholder="e.g. Broken lights in underpass" required>
+          </div>
+          <div class="form-group">
+            <label for="caLocation">Specific Area / Landmark:</label>
+            <input type="text" id="caLocation" class="form-input" placeholder="e.g. Sector 18 Market Backlane" required>
+          </div>
+          <div class="form-group">
+            <label for="caType">Category:</label>
+            <select id="caType" class="form-input">
+              <option value="hazard">Low-Light / Infrastructure Hazard</option>
+              <option value="incident">Suspicious Activity / Stalking</option>
+              <option value="safety_safe">Safe Haven / Police Booth Available</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="caSeverity">Risk Level:</label>
+            <select id="caSeverity" class="form-input">
+              <option value="medium">Medium Concern</option>
+              <option value="high">High Danger (Avoid area alone)</option>
+              <option value="safe">Safe Area Notification</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="caDesc">Details / Advice for other women:</label>
+            <textarea id="caDesc" class="form-input" rows="3" placeholder="Share cautionary advice or current situation..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-close-modal" data-modal-close="modalCommunityAlert" style="font-size: 0.85rem; padding: 0.5rem 1rem;">Cancel</button>
+          <button type="submit" class="btn-primary" style="width: auto; padding: 0.5rem 1.25rem;">Broadcast Alert</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: 👤 My Profile
+       ==================================================================== -->
+  <div id="modalProfile" class="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3>👤 My Profile</h3>
+        <button class="btn-close-modal" data-modal-close="modalProfile">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+          <div style="width: 72px; height: 72px; border-radius: 50%; background: #ffe4e6; color: var(--primary); font-size: 2.2rem; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 0.5rem;">
+            👤
+          </div>
+          <h4 id="profileViewName" style="font-size: 1.2rem;">Sweta Sharma</h4>
+          <p id="profileViewMobile" style="font-size: 0.85rem; color: #64748b;">+91 [REDACTED-PII]</p>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.65rem;">
+          <div><strong>Email:</strong> <span id="profileViewEmail">sweta@example.com</span></div>
+          <div><strong>Blood Group:</strong> <span id="profileViewBlood">B+</span></div>
+          <div><strong>Emergency Notes:</strong> <span>Asthma inhaler in backpack side pocket. Contact Mom first.</span></div>
+          <div><strong>Home Address:</strong> <span>Flat 402, Green Glen Heights, Sector 18, New Delhi</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" data-modal-close="modalProfile" style="width: auto; padding: 0.5rem 1.25rem;">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: ⚙️ Settings
+       ==================================================================== -->
+  <div id="modalSettings" class="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3>⚙️ Safety & Privacy Settings</h3>
+        <button class="btn-close-modal" data-modal-close="modalSettings">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+            <span>High-Accuracy GPS Telemetry</span>
+            <input type="checkbox" checked>
+          </label>
+          <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+            <span>Audible Siren on SOS Trigger</span>
+            <input type="checkbox" checked>
+          </label>
+          <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+            <span>Dispatch SMS with Map Pin to Contacts</span>
+            <input type="checkbox" checked>
+          </label>
+          <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+            <span>Screen Flashlight Strobe on Emergency</span>
+            <input type="checkbox" checked>
+          </label>
+          <label style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+            <span>Community Hazard Notifications</span>
+            <input type="checkbox" checked>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" data-modal-close="modalSettings" onclick="SheSafeApp.showToast('Settings saved successfully', 'success')" style="width: auto; padding: 0.5rem 1.25rem;">Save Preferences</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer"></div>
+
+  <!-- Leaflet JS for Maps -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- SheSafe Modular JavaScript Suite -->
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/sos.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/features.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

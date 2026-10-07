@@ -1,0 +1,25 @@
+{
+  "name": "shesafe-women-safety",
+  "version": "1.0.0",
+  "description": "SheSafe - Complete Women Safety & Emergency Response Web System with Frontend & Backend",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js",
+    "python": "python backend/app.py"
+  },
+  "keywords": [
+    "women-safety",
+    "sos-alert",
+    "emergency-response",
+    "live-location",
+    "safe-zone",
+    "shesafe"
+  ],
+  "author": "SheSafe Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}
