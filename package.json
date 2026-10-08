@@ -1,25 +1,40 @@
 {
-  "name": "shesafe-women-safety",
-  "version": "1.0.0",
-  "description": "SheSafe - Complete Women Safety & Emergency Response Web System with Frontend & Backend",
-  "main": "backend/server.js",
+  "name": "shesafe",
+  "version": "2.0.0",
+  "private": true,
+  "description": "SheSafe - personal safety and emergency-response platform (Flask API + vanilla ES-module PWA)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "backend/server.cjs",
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "node backend/server.js",
-    "python": "python backend/app.py"
+    "start": "node backend/server.cjs",
+    "dev": "node backend/server.cjs",
+    "api": "python3 backend/wsgi.py",
+    "test": "python3 -m pytest backend/tests -q",
+    "test:verbose": "python3 -m pytest backend/tests -v",
+    "test:frontend": "node tests/frontend/smoke.mjs",
+    "test:all": "python3 -m pytest backend/tests -q && node tests/frontend/smoke.mjs",
+    "seed": "python3 -c \"from backend.app.seed import ensure_seed; from backend.app.config import load_config; ensure_seed('backend/data/shesafe.db', load_config())\""
   },
   "keywords": [
     "women-safety",
     "sos-alert",
     "emergency-response",
     "live-location",
-    "safe-zone",
-    "shesafe"
+    "safety-intelligence",
+    "pwa"
   ],
   "author": "SheSafe Team",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5"
+  "dependencies": {},
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  },
+  "comments": {
+    "dependencies": "Intentionally empty. The runtime is Python 3.10+ with Flask only; `npm install` is not required to run SheSafe. See backend/requirements.txt.",
+    "devDependencies": "jsdom powers tests/frontend/smoke.mjs, which runs the real client module graph against a live server to verify the browser contract. Development only.",
+    "type": "So Node treats tests/frontend/*.mjs as ES modules. The browser frontend uses native modules and is unaffected. backend/server.cjs is CommonJS by extension."
   }
 }

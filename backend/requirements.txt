@@ -1,2 +1,12 @@
-flask>=2.0.0
-flask-cors>=3.0.0
+# SheSafe runtime dependencies
+#
+# Deliberately minimal. Everything the application needs beyond Flask (password
+# hashing, signed cookies, SQLite) ships with Flask or the Python standard
+# library, so there is no supply-chain surface to manage here.
+#
+#   pip install -r backend/requirements.txt
+
+Flask>=3.0,<4.0
+
+# --- development / test only (not needed at runtime) -----------------------
+# pytest>=8.0      (see backend/requirements-dev.txt)

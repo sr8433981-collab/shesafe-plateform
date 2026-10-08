@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SheSafe">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f43f5e"/>
+      <stop offset="1" stop-color="#9f1239"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path d="M256 112 136 154v104c0 76 52 128 120 148 68-20 120-72 120-148V154z" fill="#fff" fill-opacity=".95"/>
+  <path d="M256 152 172 181v77c0 56 38 95 84 110 46-15 84-54 84-110v-77z" fill="url(#g)"/>
+  <path d="M224 262h64M256 230v64" stroke="#fff" stroke-width="22" stroke-linecap="round"/>
+</svg>
