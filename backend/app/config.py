@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
 import secrets
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -255,5 +257,9 @@ def resolve_secret_key(cfg: type[Config]) -> str:
     # Stable-per-machine dev key so a demo session survives a restart, derived
     # from local machine identity + install path. Nothing secret is committed,
     # and no key material is shared between developers.
-    fingerprint = f"{os.uname().nodename}|{BASE_DIR}"
+    try:
+        hostname = os.uname().nodename
+    except AttributeError:
+        hostname = platform.node() or socket.gethostname()
+    fingerprint = f"{hostname}|{BASE_DIR}"
     return hashlib.sha256(f"shesafe-dev:{fingerprint}".encode()).hexdigest()

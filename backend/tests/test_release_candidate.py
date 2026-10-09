@@ -308,6 +308,24 @@ def test_documented_demo_still_runs_in_development(monkeypatch):
         importlib.reload(config_mod)
 
 
+def test_development_secret_key_uses_cross_platform_hostname(monkeypatch):
+    """Development keys must not depend on Unix-only ``os.uname()``."""
+    import os
+
+    from backend.app import config as config_mod
+
+    monkeypatch.delattr(os, "uname", raising=False)
+
+    class DevConfig:
+        ENV = "development"
+        TESTING = False
+        SECRET_KEY = ""
+
+    key = config_mod.resolve_secret_key(DevConfig)
+    assert isinstance(key, str)
+    assert len(key) == 64
+
+
 # ------------------------------------------------- stand-down stops sharing
 
 
