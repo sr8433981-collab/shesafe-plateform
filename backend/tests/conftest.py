@@ -55,6 +55,7 @@ class ApiClient:
         self._c = flask_client
         self._app = app
         self.user = None
+        self.credentials = None
         self._token = None
         self._prime()
 
@@ -87,8 +88,10 @@ class ApiClient:
             self._c.patch(path, json=json, headers=self._headers(headers), **kwargs)
         )
 
-    def delete(self, path, headers=None, **kwargs):
-        return self._absorb(self._c.delete(path, headers=self._headers(headers), **kwargs))
+    def delete(self, path, json=None, headers=None, **kwargs):
+        return self._absorb(
+            self._c.delete(path, json=json, headers=self._headers(headers), **kwargs)
+        )
 
     def signup(self, name="Asha Tester", email=None, phone="+919000001234", password="Str0ngPass123"):
         email = email or f"{name.split()[0].lower()}{abs(hash(email or name)) % 9999}@example.test"
@@ -98,12 +101,24 @@ class ApiClient:
         )
         assert response.status_code == 201, response.get_json()
         self.user = response.get_json()["user"]
+        self.credentials = {"identifier": email or phone, "password": password}
         return self.user
 
     def login(self, identifier, password):
         response = self.post("/api/auth/login", {"identifier": identifier, "password": password})
         if response.status_code == 200:
             self.user = response.get_json()["user"]
+        return response
+
+    def reauthenticate(self):
+        """Re-establish the session from the stored password.
+
+        Used after a server-side role change, so the next request resolves the
+        user row again instead of reusing a session created before the change.
+        """
+        self._prime()  # the previous logout may have cleared the CSRF cookie
+        response = self.login(self.credentials["identifier"], self.credentials["password"])
+        self._prime()
         return response
 
     def arm_and_activate(self, lat=28.6328, lng=77.2197, accuracy=12.0):

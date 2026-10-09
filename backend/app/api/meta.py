@@ -44,7 +44,7 @@ def health():
         {
             "status": "ok",
             "service": "SheSafe API",
-            "version": "2.0.0",
+            "version": "3.0.0",
             "environment": cfg.get("ENV", "development"),
             "demoMode": bool(cfg.get("DEMO_MODE")),
             "timestamp": iso(),
@@ -178,21 +178,23 @@ def helplines():
 @bp.get("/meta/audit")
 @rate_limit("read")
 def audit_tail():
-    """Recent audit entries (operator view). Requires a session.
+    """Recent audit entries for the signed-in account.
+
+    Scoped to ``actor_id = the caller``. The query used to read the tail of the
+    whole ``audit_log`` table, so any registered account could page through every
+    other user's security events - incident ids, contact ids and timestamps.
 
     Deliberately does not expose precise coordinates: the audit writer already
     coarsens them.
     """
-    from flask import g
+    from ..security import require_user
 
-    if not getattr(g, "user", None):
-        from ..security import require_user
-
-        require_user()
+    user = require_user()
     dbp = db_path()
     rows = db.query(
         dbp,
         "SELECT action, outcome, target_type, target_id, request_id, detail, created_at "
-        "FROM audit_log ORDER BY id DESC LIMIT 40",
+        "FROM audit_log WHERE actor_id = ? ORDER BY id DESC LIMIT 40",
+        (user["id"],),
     )
-    return ok({"entries": db.rows_to_dicts(rows)})
+    return ok({"entries": db.rows_to_dicts(rows), "scope": "your account"})

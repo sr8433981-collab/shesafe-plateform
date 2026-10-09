@@ -3,16 +3,18 @@
  *
  * The siren is synthesised with the Web Audio API - no asset download, no
  * dependency. It is only ever started from a user gesture, which is what
- * browsers require before audio can play.
+ * browsers require before audio can play. If the context cannot be created the
+ * siren reports `false` rather than pretending to be sounding.
  */
 
 import { el } from './dom.js';
+import { icon } from './ui.js';
 
-const TOAST_STYLES = {
-  info: { glyph: 'i', tone: '' },
-  success: { glyph: '✓', tone: 'toast--safe' },
-  warning: { glyph: '!', tone: 'toast--warn' },
-  error: { glyph: '!', tone: 'toast--danger' },
+const TOAST_KINDS = {
+  info: { tone: '', glyph: 'info' },
+  success: { tone: 'toast--safe', glyph: 'checkCircle' },
+  warning: { tone: 'toast--caution', glyph: 'alert' },
+  error: { tone: 'toast--danger', glyph: 'siren' },
 };
 
 function container() {
@@ -25,13 +27,13 @@ function container() {
 }
 
 export function toast(message, kind = 'info', { timeout = 5000 } = {}) {
-  const { glyph, tone } = TOAST_STYLES[kind] || TOAST_STYLES.info;
+  const spec = TOAST_KINDS[kind] || TOAST_KINDS.info;
   const node = el(
     'div',
-    { class: `toast ${tone}`.trim(), role: kind === 'error' ? 'alert' : 'status' },
-    el('span', { 'aria-hidden': 'true' }, glyph),
-    el('div', { style: { flex: '1' } }, message),
-    el('button', { class: 'toast__close', type: 'button', 'aria-label': 'Dismiss notification', onclick: () => node.remove() }, '×'),
+    { class: `toast ${spec.tone}`.trim(), role: kind === 'error' ? 'alert' : 'status' },
+    icon(spec.glyph),
+    el('div', { class: 'grow' }, message),
+    el('button', { class: 'toast__close', type: 'button', 'aria-label': 'Dismiss notification', onclick: () => node.remove() }, icon('x')),
   );
   container().appendChild(node);
   if (timeout) window.setTimeout(() => node.remove(), timeout);
@@ -45,6 +47,10 @@ class Siren {
     this.ctx = null;
     this.nodes = [];
     this.muted = false;
+  }
+
+  get supported() {
+    return Boolean(window.AudioContext || window.webkitAudioContext);
   }
 
   start() {
@@ -72,15 +78,14 @@ class Siren {
 
       // Soften the attack so the siren does not click.
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.15);
+      gain.gain.exponentialRampToValueAtValue(0.16, now + 0.15);
 
       oscillator.connect(gain).connect(this.ctx.destination);
       oscillator.start();
       lfo.start();
       this.nodes = [oscillator, lfo];
       return true;
-    } catch (error) {
-      console.warn('[SheSafe] audio unavailable:', error);
+    } catch {
       return false;
     }
   }
@@ -100,7 +105,7 @@ class Siren {
 
   vibrate(pattern = [420, 180, 420, 180, 900]) {
     if ('vibrate' in navigator) {
-      try { navigator.vibrate(pattern); } catch { /* blocked */ }
+      try { navigator.vibrate(pattern); } catch { /* blocked by the browser */ }
     }
   }
 }

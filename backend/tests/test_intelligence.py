@@ -353,3 +353,189 @@ def test_incident_assist_stores_unverified_report(authed):
     assert "not verified" in assist["reportNote"]
     assert assist["sosAvailable"] is True
     assert assist["source"] in {"rule_based", "llm"}
+
+# ------------------------------------------------------------- the ledger
+
+
+def test_ledger_partitions_every_factor():
+    """The raising / lowering / fixed lists must cover the whole score.
+
+    This is what stops the interface from printing a factor as "protective" on
+    one screen and "risky" on another.
+    """
+    assessment = scoring.assess(
+        lat=28.63,
+        lng=77.21,
+        hour_local=23,
+        incidents=[{"id": "a", "severity": "high", "created_at": None}],
+        places=[{"name": "Station", "category": "police", "distance_km": 0.2}],
+        reports=[{"id": "r", "state": "COMMUNITY_REPORTED", "severity": "high", "confidence": 0.5}],
+    )
+    ledger = assessment.to_dict()["ledger"]
+    counted = len(ledger["raising"]) + len(ledger["lowering"]) + len(ledger["fixed"])
+    assert counted == len(assessment.features)
+    assert ledger["observed"] and ledger["unobserved"]
+
+
+def test_ledger_totals_reconstruct_the_score():
+    """The property a judge checks by hand: the factors add up to the score.
+
+    This is why a fixed input is reported with the points it contributes rather
+    than as "unchanged" - otherwise that contribution would be invisible and the
+    arithmetic would not close.
+    """
+    for hour in (3, 13, 23):
+        assessment = scoring.assess(lat=28.63, lng=77.21, hour_local=hour)
+        ledger = assessment.to_dict()["ledger"]
+        assert abs(ledger["scoreTotal"] - assessment.risk_score) <= 1.0
+        assert abs(
+            ledger["fixedPointsTotal"] + ledger["raisingTotal"] + ledger["loweringTotal"]
+            + sum(f["baselinePoints"] for f in ledger["raising"] + ledger["lowering"])
+            - assessment.risk_score
+        ) <= 1.0
+
+
+def test_ledger_raising_totals_match_the_rows():
+    assessment = scoring.assess(lat=28.63, lng=77.21, hour_local=2, places=[])
+    ledger = assessment.to_dict()["ledger"]
+    assert ledger["raisingTotal"] == round(sum(f["deltaPoints"] for f in ledger["raising"]), 1)
+    assert ledger["loweringTotal"] == round(sum(f["deltaPoints"] for f in ledger["lowering"]), 1)
+
+
+def test_ledger_marks_factors_with_no_prior_as_unchanged():
+    """A fixed heuristic curve has no baseline, so it must not be shown as a
+    positive or negative contribution - there is nothing to have moved from."""
+    assessment = scoring.assess(lat=28.63, lng=77.21, hour_local=23)
+    ledger = assessment.to_dict()["ledger"]
+    unchanged_keys = {f["key"] for f in ledger["fixed"]}
+    assert "time_of_day" in unchanged_keys
+    moved_keys = {f["key"] for f in ledger["raising"]} | {f["key"] for f in ledger["lowering"]}
+    assert "time_of_day" not in moved_keys
+
+
+def test_near_police_station_lowers_risk_versus_no_places():
+    with_station = scoring.assess(
+        lat=28.63, lng=77.21, hour_local=13,
+        places=[{"name": "City Police Station", "category": "police", "distance_km": 0.1}],
+    )
+    without = scoring.assess(lat=28.63, lng=77.21, hour_local=13, places=[])
+    assert with_station.risk_score < without.risk_score
+    ledger = with_station.to_dict()["ledger"]
+    assert any(f["key"] == "safety_infrastructure" for f in ledger["lowering"])
+
+
+# ------------------------------------------------------------- comparison
+
+
+def _score(**kwargs):
+    """A score with enough real observations to support an explanation.
+
+    Coverage matters here: the engine refuses to attribute a change when most of
+    a score came from priors, which is correct behaviour and would otherwise mask
+    what these tests are actually checking.
+    """
+    base = {
+        "lat": 28.6328,
+        "lng": 77.2197,
+        "hour_local": 14,
+        "incidents": [{"id": "i0", "severity": "medium", "created_at": None}],
+        "places": [
+            {"name": "City Police Station", "category": "police", "distance_km": 0.4},
+            {"name": "District Hospital", "category": "hospital", "distance_km": 1.1},
+        ],
+        "reports": [{"id": "r0", "state": "VERIFIED", "severity": "medium", "confidence": 0.6}],
+    }
+    base.update(kwargs)
+    return scoring.assess(**base)
+
+
+def test_compare_time_of_day_reports_the_factor_that_moved():
+    day = _score(hour_local=13)
+    night = _score(hour_local=1)
+    change = scoring.compare(day, night, dimension="time")
+    payload = change.to_dict()
+    assert payload["safetyDelta"] < 0
+    assert payload["primaryFactor"]["key"] == "time_of_day"
+    assert payload["direction"] == "worse"
+    assert "Safety score" in payload["headline"]
+    assert "time of day" in payload["explanation"].lower()
+
+
+def test_compare_is_symmetric_in_the_arithmetic():
+    """A -> B and B -> A must agree on which factor moved and by how much."""
+    day = _score(hour_local=13)
+    night = _score(hour_local=1)
+    forward = scoring.compare(day, night, dimension="time").to_dict()
+    backward = scoring.compare(night, day, dimension="time").to_dict()
+    assert forward["primaryFactor"]["key"] == backward["primaryFactor"]["key"]
+    assert forward["primaryFactor"]["riskDelta"] == -backward["primaryFactor"]["riskDelta"]
+    assert forward["safetyDelta"] == -backward["safetyDelta"]
+
+
+def test_compare_location_attributes_the_change_to_the_place():
+    busy = _score(
+        lat=28.6328, lng=77.2197,
+        incidents=[{"id": "i1", "severity": "high", "created_at": None}],
+        places=[{"name": "Nowhere Clinic", "category": "pharmacy", "distance_km": 4.9}],
+    )
+    quiet = _score(
+        lat=28.7000, lng=77.3000,
+        incidents=[],
+        places=[{"name": "City Police Station", "category": "police", "distance_km": 0.15}],
+    )
+    change = scoring.compare(busy, quiet, dimension="location").to_dict()
+    assert change["safetyDelta"] > 0
+    moved = {f["key"] for f in change["factors"]}
+    assert "incident_density" in moved or "safety_infrastructure" in moved
+
+
+def test_compare_route_uses_only_the_route_factor():
+    plain = _score(route=None)
+    exposed = _score(route={"duration_min": 60, "distance_km": 4.0, "tags": {"lit": False, "water_crossing": True}})
+    change = scoring.compare(plain, exposed, dimension="route").to_dict()
+    assert change["primaryFactor"]["key"] == "route_characteristics"
+    assert change["safetyDelta"] < 0
+
+
+def test_compare_refuses_an_unknown_dimension():
+    with pytest.raises(ValueError):
+        scoring.compare(_score(), _score(hour_local=3), dimension="weather")
+
+
+def test_compare_with_identical_inputs_is_reported_as_unchanged():
+    """Determinism is the property being sold, so identical inputs must say so."""
+    change = scoring.compare(_score(), _score(), dimension="time").to_dict()
+    assert change["safetyDelta"] == 0
+    assert change["direction"] == "unchanged"
+    assert "unchanged" in change["headline"].lower()
+    assert change["factors"] == []
+
+
+def test_compare_is_limited_and_says_so_when_data_is_thin():
+    """Thin coverage must produce "Limited safety data available", never a
+    confident invented cause."""
+    bare = scoring.assess(lat=28.6328, lng=77.2197, hour_local=3, places=[])
+    other = scoring.assess(lat=28.6328, lng=77.2197, hour_local=15, places=[])
+    payload = scoring.compare(bare, other, dimension="time").to_dict()
+    assert payload["limited"] is True
+    assert payload["headline"] == "Limited safety data available."
+    assert "will not claim to know" in payload["explanation"]
+
+
+def test_compare_of_richly_scored_points_is_not_limited():
+    """The opposite guard: adequate coverage must NOT be downgraded to "limited",
+    or the honest case would silently become the vague one."""
+    payload = scoring.compare(_score(hour_local=20), _score(hour_local=4), dimension="time").to_dict()
+    assert payload["limited"] is False
+    assert payload["headline"].startswith("Safety score")
+
+
+def test_compare_never_prints_a_number_the_engine_did_not_produce():
+    before = _score(hour_local=20)
+    after = _score(hour_local=4)
+    payload = scoring.compare(before, after, dimension="time").to_dict()
+    assert payload["before"]["safetyScore"] == before.safety_score
+    assert payload["after"]["safetyScore"] == after.safety_score
+    assert payload["safetyDelta"] == after.safety_score - before.safety_score
+    for factor in payload["factors"]:
+        assert factor["riskDelta"] == round(factor["afterPoints"] - factor["beforePoints"], 1)

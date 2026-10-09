@@ -65,6 +65,9 @@ def explain():
                     {"label": label, "min": low, "max": high, "key": key} for low, high, label, key in scoring.BANDS
                 ],
                 "scoreSemantics": "riskScore 0-100, higher = more risk. safetyScore = 100 - riskScore.",
+                "changeDimensions": [
+                    {"key": key, "label": DIMENSION_LABELS[key]} for key in scoring.CHANGE_DIMENSIONS
+                ],
                 "limitations": [
                     "Not a trained machine-learning model; no accuracy measurement is claimed.",
                     "No street-lighting, CCTV or occupancy data is available to SheSafe.",
@@ -74,6 +77,105 @@ def explain():
             }
         }
     )
+
+
+#: How each permitted comparison is described on screen. The client renders these
+#: labels rather than inventing its own wording, so the UI and the endpoint that
+#: did the arithmetic always agree.
+DIMENSION_LABELS = {
+    "location": "Location changed",
+    "time": "Time of day changed",
+    "route": "Route changed",
+    "data": "Safety data changed",
+}
+
+
+@bp.post("/compare")
+@rate_limit("external")
+@login_required
+def compare():
+    """Two scores from the same engine, subtracted. "What changed?", answered.
+
+    Exactly one input may vary per request. The response carries the BEFORE and
+    AFTER sides in full, the per-factor movement, and a generated explanation, so
+    the interface can never print a number the engine did not produce.
+    """
+    user = require_user()
+    body = require_json(request)
+    from .. import intelligence
+
+    dimension = str(body.get("dimension") or "").strip()
+    if dimension not in intelligence.scoring.CHANGE_DIMENSIONS:
+        raise ValidationError(
+            f"dimension must be one of {', '.join(intelligence.scoring.CHANGE_DIMENSIONS)}.",
+            dimension="unsupported",
+        )
+
+    before = _comparison_side(body.get("before"), label="before")
+    after = _comparison_side(body.get("after"), label="after")
+
+    try:
+        payload = intelligence.compare_point(
+            db_path=db_path(),
+            config=current_app.config,
+            before=before,
+            after=after,
+            dimension=dimension,
+            user_id=user["id"],
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc), before="unchanged") from exc
+
+    payload["dimensionLabel"] = DIMENSION_LABELS[dimension]
+    payload["disclaimer"] = (
+        "'Safety data changed' means the inputs the engine reads moved — for example a new community "
+        "report within range. It does not mean SheSafe learned anything about a new crime dataset."
+    )
+    return ok({"comparison": payload})
+
+
+def _comparison_side(raw, *, label: str) -> dict:
+    """Validate one side of a comparison request.
+
+    Route characteristics are accepted here but only as the numbers the routing
+    engine already produced, so a client cannot invent a route to make a point.
+    """
+    if not isinstance(raw, dict):
+        raise ValidationError(f"{label} must be an object with at least lat and lng.", **{label: "required"})
+    if raw.get("lat") is None or raw.get("lng") is None:
+        # Both sides must be explicit. Falling back to "the user's last fix" would
+        # make it possible to compare two positions that were never both stated.
+        raise ValidationError(
+            f"{label} needs an explicit lat and lng. A comparison is between two stated positions, "
+            "not one stated position and a guess.",
+            **{label: "required"},
+        )
+    side = {
+        "lat": validation.lat_field(raw, "lat"),
+        "lng": validation.lng_field(raw, "lng"),
+        "radiusKm": validation.float_field(
+            raw, "radiusKm", lo=0.2, hi=25, required=False, default=None, label="Search radius"
+        ),
+    }
+    cutoff = raw.get("excludeSince")
+    if cutoff:
+        side["excludeSince"] = validation.parse_iso_datetime(cutoff, field_name="excludeSince").isoformat()
+    hour = raw.get("hourLocal")
+    if hour is not None:
+        side["hourLocal"] = validation.int_field(raw, "hourLocal", minimum=0, maximum=23, label="Local hour")
+    route = raw.get("route")
+    if route:
+        side["route"] = {
+            "duration_min": validation.float_field(route, "durationMin", lo=0, hi=24 * 60, required=False, default=0, label="Travel time"),
+            "distance_km": validation.float_field(route, "distanceKm", lo=0, hi=500, required=False, default=0, label="Distance"),
+            "tags": {
+                "lit": route.get("tags", {}).get("lit") if isinstance(route.get("tags"), dict) else None,
+                "water_crossing": bool(route.get("tags", {}).get("water_crossing"))
+                if isinstance(route.get("tags"), dict)
+                else False,
+            },
+        }
+    return side
 
 
 @bp.post("/routes")

@@ -1,10 +1,13 @@
 /**
- * Safe DOM helpers.
+ * Safe DOM primitives.
  *
- * Every function here builds nodes with `textContent` / `setAttribute`. There is
- * no `innerHTML` anywhere in this codebase's data path, so a contact named
+ * Every builder here uses `textContent` / `setAttribute`. There is no
+ * `innerHTML` anywhere in this codebase's data path, so a contact named
  * `<img onerror=...>` or an incident titled `</script><script>` is inert by
  * construction rather than by escaping discipline.
+ *
+ * Presentation helpers (icons, badges, metrics, timelines, states, sheets) live
+ * in ./ui.js so that the visual vocabulary has exactly one home.
  */
 
 export function el(tag, props = {}, ...children) {
@@ -52,81 +55,44 @@ export function on(target, type, handler, options) {
   return () => target.removeEventListener(type, handler, options);
 }
 
-export function icon(glyph, label) {
-  const span = el('span', { 'aria-hidden': 'true' }, glyph);
-  if (label) {
-    return el('span', { class: 'row', style: { gap: '6px' } }, span, el('span', { class: 'sr-only' }, label));
-  }
-  return span;
-}
+/* --------------------------------------------------------- announcements */
 
-export function skeletonList(rows = 3) {
-  return el(
-    'div',
-    { class: 'stack stack--tight', 'aria-hidden': 'true' },
-    ...Array.from({ length: rows }, () =>
-      el('div', { class: 'skeleton', style: { height: '62px', borderRadius: '14px' } }),
-    ),
-  );
-}
-
-export function emptyState({ glyph = '·', title, body, action }) {
-  return el(
-    'div',
-    { class: 'state' },
-    el('div', { class: 'state__icon', 'aria-hidden': 'true' }, glyph),
-    el('p', { class: 'state__title' }, title),
-    body ? el('p', {}, body) : null,
-    action || null,
-  );
-}
-
-export function errorState(message, retry) {
-  return el(
-    'div',
-    { class: 'state', role: 'alert' },
-    el('div', { class: 'state__icon', 'aria-hidden': 'true' }, '!'),
-    el('p', { class: 'state__title' }, 'Something went wrong'),
-    el('p', {}, message || 'The request did not complete.'),
-    retry ? el('button', { class: 'btn btn--ghost', type: 'button', onclick: retry }, 'Try again') : null,
-  );
-}
-
-export function notice(kind, title, body, glyph) {
-  return el(
-    'div',
-    { class: `notice notice--${kind}`, role: kind === 'danger' ? 'alert' : 'note' },
-    el('span', { class: 'notice__icon', 'aria-hidden': 'true' }, glyph || (kind === 'danger' ? '!' : 'i')),
-    el('div', {}, title ? el('strong', {}, title) : null, body),
-  );
-}
-
-/** Announce a message to screen readers without showing a toast. */
-export function announce(message) {
-  let region = document.getElementById('live-region');
+function liveRegion(id, politeness) {
+  let region = document.getElementById(id);
   if (!region) {
-    region = el('div', { id: 'live-region', class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+    region = el('div', { id, class: 'sr-only', role: politeness === 'assertive' ? 'alert' : 'status', 'aria-live': politeness });
     document.body.appendChild(region);
   }
+  return region;
+}
+
+/**
+ * Announce a routine status change.
+ *
+ * Screen readers ignore a region whose text is set twice within the same tick,
+ * so the message is cleared first and re-set on the next frame. The region is
+ * created once and reused so live-region semantics are not re-registered.
+ */
+export function announce(message) {
+  const region = liveRegion('live-region', 'polite');
   region.textContent = '';
-  window.setTimeout(() => {
-    region.textContent = message;
-  }, 40);
+  window.setTimeout(() => { region.textContent = message; }, 60);
 }
 
-export function formatDistance(km) {
-  if (km === null || km === undefined) return '—';
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 10) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
+/**
+ * Announce an emergency state change.
+ *
+ * Emergency transitions must interrupt whatever the screen reader is saying —
+ * a polite region would queue the message behind whatever else is in flight,
+ * which is the wrong behaviour when someone has just pressed SOS.
+ */
+export function announceUrgent(message) {
+  const region = liveRegion('live-region-urgent', 'assertive');
+  region.textContent = '';
+  window.setTimeout(() => { region.textContent = message; }, 40);
 }
 
-export function formatTime(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+/* ------------------------------------------------------------ formatters */
 
 export function relativeTime(value) {
   if (!value) return 'never';

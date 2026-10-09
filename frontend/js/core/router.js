@@ -1,15 +1,24 @@
 /**
  * Hash router.
  *
- * `#/dashboard`, `#/safety`, `#/route`, ... Chosen over History API routing so the
- * app works from any static host and from a plain file server without
+ * `#/dashboard`, `#/safety`, `#/route`, ... Chosen over History API routing so
+ * the app works from any static host and from a plain file server without
  * server-side rewrites.
  *
- * Accessibility: every navigation sets `aria-current="page"`, moves focus to the
- * view heading, and announces the view name in a live region.
+ * Two rules this module owns, both of which the previous version got wrong:
+ *
+ * 1. **The authentication screen is not a route.** It is a separate surface.
+ *    Rendering a route must never be able to reveal an authenticated view to a
+ *    signed-out visitor, no matter what the hash says.
+ * 2. **Navigation is guarded by session state**, not by an `if` in the click
+ *    handler, so deep links, the back button and a cold load all behave the
+ *    same way.
+ *
+ * Accessibility: every navigation sets `aria-current="page"` on all navigation
+ * landmarks, moves focus to the view heading, and announces the view name.
  */
 
-import { $, announce, $$ } from './dom.js';
+import { announce, $$ } from './dom.js';
 
 const routes = new Map();
 let notFoundView = null;
@@ -52,34 +61,44 @@ export function currentRoute() {
   return current;
 }
 
-export async function render() {
+/**
+ * Show a view.
+ *
+ * `gate` is resolved by the caller from the store. When it returns false the
+ * router refuses to paint, which is what keeps `#/intelligence` and every other
+ * private screen away from a signed-out visitor.
+ */
+export async function render({ gate = null } = {}) {
   const { name, query } = parseHash();
   const route = routes.get(name);
   const viewId = route ? route.viewId : notFoundView;
-  if (!viewId) return;
+  if (!viewId) return null;
 
   if (beforeEach) {
     const allowed = await beforeEach({ from: current?.name, to: name, viewId });
     if (allowed === false) {
-      // Put the hash back so the URL always reflects the visible view.
       const back = current ? `#/${current.name}` : '#/home';
       if (window.location.hash !== back) window.location.hash = back;
-      return;
+      return null;
     }
   }
 
+  if (gate && gate(name) === false) return null;
+
   for (const view of $$('[data-view]')) {
-    const active = view.id === viewId;
-    view.hidden = !active;
+    view.hidden = view.id !== viewId;
   }
   for (const link of $$('[data-route]')) {
-    const active = link.dataset.route === name;
-    if (active) link.setAttribute('aria-current', 'page');
+    if (link.dataset.route === name) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
 
   current = { name, query, viewId, title: route ? route.title : 'Not found' };
   document.title = `${route ? route.title : 'Not found'} · SheSafe`;
+  // Not `dataset.view`: the view loop above selects `[data-view]`, and giving
+  // <body> the same attribute makes the loop hide the entire application the
+  // moment a route is not named after the body's (empty) id.
+  document.body.dataset.activeView = name;
 
   // Move focus to the view heading so keyboard and screen-reader users land in
   // the right place after navigating.
@@ -90,15 +109,17 @@ export async function render() {
       if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
       heading.focus({ preventScroll: true });
     }
-    view.scrollIntoView({ block: 'start', behavior: 'instant' in window ? 'instant' : 'auto' });
+    // A new view always starts at the top. `scroll-behavior: smooth` on <html>
+    // turns this into an animation that races the view's own async content, so
+    // the page settles part-way down the dashboard with the SOS control scrolled
+    // off the top. `instant` overrides the CSS.
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
   announce(current.title);
-  document.body.dataset.view = name;
+  return current;
 }
 
-export function start() {
-  window.addEventListener('hashchange', render);
-  render();
+export function start(options = {}) {
+  window.addEventListener('hashchange', () => render(options));
+  render(options);
 }
-
-export { $ };

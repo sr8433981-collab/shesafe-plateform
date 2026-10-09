@@ -94,7 +94,7 @@ class Config:
             "style-src 'self' https://unpkg.com https://fonts.googleapis.com 'unsafe-inline'; "
             "font-src 'self' https://fonts.gstatic.com data:; "
             "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com; "
-            "connect-src 'self' https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org; "
+            "connect-src 'self' https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
         ),
     }
@@ -120,6 +120,28 @@ class Config:
     SHARE_TOKEN_DEFAULT_TTL = _int_env("SHESAFE_SHARE_TTL", 3600)
     SHARE_TOKEN_MAX_TTL = _int_env("SHESAFE_SHARE_TTL_MAX", 24 * 3600)
     INCIDENT_LOCATION_RETENTION_DAYS = _int_env("SHESAFE_LOCATION_RETENTION_DAYS", 30)
+    AUDIT_RETENTION_DAYS = _int_env("SHESAFE_AUDIT_RETENTION_DAYS", 180)
+    CLEANUP_INTERVAL_SECONDS = _int_env("SHESAFE_CLEANUP_INTERVAL", 900)
+    STALE_INCIDENT_MAX_HOURS = _int_env("SHESAFE_STALE_INCIDENT_HOURS", 24)
+
+    # --- Contact ownership verification -----------------------------------
+    # Provider path: a one-time code is delivered to the contact and read back.
+    # Without a provider the attempt is recorded as SIMULATED and says so.
+    CONTACT_VERIFICATION_TTL_SECONDS = _int_env("SHESAFE_VERIFICATION_TTL", 600)
+    CONTACT_VERIFICATION_MAX_ATTEMPTS = _int_env("SHESAFE_VERIFICATION_MAX_ATTEMPTS", 5)
+
+    # --- Moderation -------------------------------------------------------
+    # Moderation is a moderator-role action. Demo Mode opens it to any signed-in
+    # account so the flow can be demonstrated, and the API says so in every
+    # moderation response. Production forces it closed regardless of the
+    # environment variable.
+    # ``None`` means "follow DEMO_MODE". Set to 1 to open moderation outside
+    # Demo Mode; production ignores this entirely.
+    MODERATION_OPEN_TO_ALL_USERS = (
+        True
+        if os.environ.get("SHESAFE_OPEN_MODERATION", "").strip().lower() in {"1", "true", "yes", "on"}
+        else None
+    )
 
     # --- Demo mode ------------------------------------------------------
     DEMO_MODE = _bool_env("SHESAFE_DEMO_MODE", False)
@@ -176,6 +198,17 @@ class ProductionConfig(Config):
     ENV = "production"
     SESSION_COOKIE_SECURE = True
     HSTS_ENABLED = True
+    # Production never leaves moderation open to any signed-in account, whatever
+    # the environment says.
+    MODERATION_OPEN_TO_ALL_USERS = False
+    # Production is never a demo. `DEMO_MODE` exposes /api/demo/reset and
+    # /api/demo/script to any signed-in account, and `SEED_ON_START` (default
+    # True) seeds demo@shesafe.local with the publicly documented password
+    # `shesafe-demo` on every boot. Neither may be switched on by an env var in
+    # production: a real deployment must not ship a working account whose
+    # credentials are printed in the README.
+    DEMO_MODE = False
+    SEED_ON_START = False
     CORS_ALLOWED_ORIGINS = tuple(
         o.strip()
         for o in os.environ.get("SHESAFE_CORS_ORIGINS", "").split(",")

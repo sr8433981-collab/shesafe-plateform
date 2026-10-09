@@ -18,8 +18,18 @@ from .validation import normalise_phone
 # ------------------------------------------------------------------ users
 
 
-def get_user(db_path, user_id: str) -> dict[str, Any] | None:
-    return db.row_to_dict(db.query_one(db_path, "SELECT * FROM users WHERE id = ?", (user_id,)))
+def get_user(db_path, user_id: str, *, include_deleted: bool = False) -> dict[str, Any] | None:
+    """Fetch a user by id.
+
+    A soft-deleted account is invisible here by default. That is what makes
+    account deletion take effect immediately: the session cookie still carries
+    the id, but the row is no longer resolvable, so the very next request is
+    unauthenticated.
+    """
+    sql = "SELECT * FROM users WHERE id = ?"
+    if not include_deleted:
+        sql += " AND deleted_at IS NULL"
+    return db.row_to_dict(db.query_one(db_path, sql, (user_id,)))
 
 
 def find_user_by_identifier(db_path, identifier: str) -> dict[str, Any] | None:
@@ -101,6 +111,79 @@ def update_user(db_path, user_id: str, patch: dict[str, Any]) -> dict[str, Any] 
     return get_user(db_path, user_id)
 
 
+def set_user_role(db_path, user_id: str, role: str) -> dict[str, Any] | None:
+    """Role changes are operator-only and deliberately not part of ``update_user``.
+
+    Keeping this a separate function means no request handler can promote an
+    account by accident through a profile patch.
+    """
+    db.execute(db_path, "UPDATE users SET role = ?, updated_at = ? WHERE id = ?", (role, iso(), user_id))
+    return get_user(db_path, user_id)
+
+
+def soft_delete_user(db_path, user_id: str) -> bool:
+    """Mark an account deleted.
+
+    A soft delete is what makes account deletion immediate and irreversible from
+    the session's point of view: ``_load_session`` refuses a deleted row on the
+    very next request, so a stolen or retained cookie stops working without
+    waiting for its expiry.
+    """
+    cur = db.execute(db_path, "UPDATE users SET deleted_at = ?, updated_at = ? WHERE id = ?", (iso(), iso(), user_id))
+    return bool(cur.rowcount)
+
+
+def purge_user_personal_data(db_path, user_id: str) -> dict[str, int]:
+    """Delete everything that identifies a person, after account deletion.
+
+    Incident rows are **kept and anonymised** rather than deleted. Two reasons:
+    a safety product must be able to show someone their own history, and
+    silently removing the record of an emergency would itself be a data decision
+    taken without the user. What is removed is everything that points at a
+    person: coordinates, phone numbers, names, the session identity, and the
+    audit entries that name them.
+    """
+    counts: dict[str, int] = {}
+    for table, sql in (
+        ("notification_attempts", "DELETE FROM notification_attempts WHERE user_id = ?"),
+        ("incident_locations", "DELETE FROM incident_locations WHERE incident_id IN (SELECT id FROM incidents WHERE user_id = ?)"),
+        ("location_samples", "DELETE FROM location_samples WHERE user_id = ?"),
+        ("share_tokens", "DELETE FROM share_tokens WHERE user_id = ?"),
+        ("journey_events", "DELETE FROM journey_events WHERE journey_id IN (SELECT id FROM journeys WHERE user_id = ?)"),
+        ("journeys", "DELETE FROM journeys WHERE user_id = ?"),
+        ("check_ins", "DELETE FROM check_ins WHERE user_id = ?"),
+        ("report_votes", "DELETE FROM report_votes WHERE user_id = ?"),
+        ("contacts", "DELETE FROM contacts WHERE user_id = ?"),
+        ("community_reports", "UPDATE community_reports SET user_id = NULL, place_label = NULL WHERE user_id = ?"),
+        ("audit_log", "UPDATE audit_log SET actor_id = NULL, actor_label = NULL WHERE actor_id = ?"),
+    ):
+        cur = db.execute(db_path, sql, (user_id,))
+        counts[table] = cur.rowcount or 0
+
+    # Anonymise rather than delete: the row keeps foreign-key integrity for the
+    # incident records, and keeps the session id unresolvable.
+    cur = db.execute(
+        db_path,
+        """
+        UPDATE users
+        SET name = 'Deleted account', email = NULL, phone = NULL,
+            password_hash = ?, blood_group = NULL, emergency_notes = NULL,
+            home_area = NULL, updated_at = ?
+        WHERE id = ?
+        """,
+        (f"deleted-{new_id('usr')}", iso(), user_id),
+    )
+    counts["users"] = cur.rowcount or 0
+    return counts
+
+
+def user_row_counts(db_path, user_id: str) -> dict[str, int]:
+    return {
+        table: int((db.query_one(db_path, f"SELECT COUNT(*) AS c FROM {table} WHERE user_id = ?", (user_id,)) or {"c": 0})["c"])
+        for table in ("incidents", "contacts", "journeys", "check_ins", "location_samples", "share_tokens", "community_reports")
+    }
+
+
 # --------------------------------------------------------------- contacts
 
 
@@ -165,7 +248,12 @@ def update_contact(db_path, user_id: str, contact_id: str, patch: dict[str, Any]
     existing = get_contact(db_path, user_id, contact_id)
     if existing is None:
         return None
-    merged = {**existing, **{k: v for k, v in patch.items() if v is not None}}
+    # Explicit ``None`` means "clear this column" (used to destroy a verification
+    # code). The API layer already drops ``None`` from client patches, so a value
+    # can only become NULL here when the server itself asked for it.
+    merged = {**existing, **patch}
+    if not merged.get("name") or not merged.get("phone"):
+        return existing
     if merged.get("is_primary"):
         db.execute(
             db_path,
@@ -176,7 +264,10 @@ def update_contact(db_path, user_id: str, contact_id: str, patch: dict[str, Any]
         db_path,
         """
         UPDATE contacts SET name = ?, relationship = ?, phone = ?, channels = ?,
-                           is_primary = ?, verified = ?, active = ?, updated_at = ?
+                           is_primary = ?, verified = ?, verified_by = ?, verified_at = ?,
+                           verification_requested_at = ?, verification_code_hash = ?,
+                           verification_expires_at = ?, verification_attempts = ?,
+                           active = ?, updated_at = ?
         WHERE id = ? AND user_id = ?
         """,
         (
@@ -186,6 +277,12 @@ def update_contact(db_path, user_id: str, contact_id: str, patch: dict[str, Any]
             json.dumps(merged.get("channels") or ["sms", "call"]),
             1 if merged.get("is_primary") else 0,
             1 if merged.get("verified") else 0,
+            merged.get("verified_by"),
+            merged.get("verified_at"),
+            merged.get("verification_requested_at"),
+            merged.get("verification_code_hash"),
+            merged.get("verification_expires_at"),
+            int(merged.get("verification_attempts") or 0),
             1 if merged.get("active", True) else 0,
             iso(),
             contact_id,
@@ -193,6 +290,89 @@ def update_contact(db_path, user_id: str, contact_id: str, patch: dict[str, Any]
         ),
     )
     return get_contact(db_path, user_id, contact_id)
+
+
+# --------------------------------------------------------- verification
+
+
+def start_contact_verification(
+    db_path,
+    user_id: str,
+    contact_id: str,
+    *,
+    code_hash: str,
+    ttl_seconds: int,
+    provider: str,
+) -> dict[str, Any] | None:
+    """Record that a one-time verification code was dispatched for a contact.
+
+    Only the hash of the code is stored, exactly like a password: a database
+    leak cannot be replayed to impersonate the contact.
+    """
+    now = utcnow()
+    from datetime import timedelta
+
+    db.execute(
+        db_path,
+        """
+        UPDATE contacts
+        SET verification_requested_at = ?, verification_code_hash = ?,
+            verification_expires_at = ?, verification_attempts = 0, updated_at = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (
+            iso(now),
+            code_hash,
+            iso(now + timedelta(seconds=ttl_seconds)),
+            iso(),
+            contact_id,
+            user_id,
+        ),
+    )
+    return get_contact(db_path, user_id, contact_id)
+
+
+def confirm_contact_verification(db_path, user_id: str, contact_id: str) -> dict[str, Any] | None:
+    """Mark a contact as provider-verified and destroy the code."""
+    db.execute(
+        db_path,
+        """
+        UPDATE contacts
+        SET verified = 1, verified_by = 'provider', verified_at = ?,
+            verification_code_hash = NULL, verification_expires_at = NULL,
+            verification_requested_at = NULL, updated_at = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (iso(), iso(), contact_id, user_id),
+    )
+    return get_contact(db_path, user_id, contact_id)
+
+
+def record_verification_attempt(db_path, user_id: str, contact_id: str) -> int:
+    db.execute(
+        db_path,
+        "UPDATE contacts SET verification_attempts = verification_attempts + 1 WHERE id = ? AND user_id = ?",
+        (contact_id, user_id),
+    )
+    row = db.query_one(db_path, "SELECT verification_attempts FROM contacts WHERE id = ? AND user_id = ?", (contact_id, user_id))
+    return int(row["verification_attempts"]) if row else 0
+
+
+def clear_contact_verification(db_path, user_id: str, contact_id: str, *, revoke_verified: bool = True) -> dict[str, Any] | None:
+    patch = {
+        "verification_requested_at": None,
+        "verification_code_hash": None,
+        "verification_expires_at": None,
+        "verification_attempts": 0,
+        "updated_at": iso(),
+    }
+    if revoke_verified:
+        patch.update({"verified": 0, "verified_by": None, "verified_at": None})
+    existing = get_contact(db_path, user_id, contact_id)
+    if existing is None:
+        return None
+    merged = {**existing, **patch}
+    return update_contact(db_path, user_id, contact_id, merged)
 
 
 def delete_contact(db_path, user_id: str, contact_id: str) -> bool:
@@ -396,13 +576,107 @@ def incident_trail(db_path, incident_id: str, limit: int = 200) -> list[dict[str
 
 
 def purge_old_locations(db_path, retention_days: int) -> int:
-    cutoff = iso(utcnow().replace(microsecond=0)) if retention_days <= 0 else None
-    if cutoff is None:
-        from datetime import timedelta
+    """Delete non-incident location samples older than the retention window.
 
-        cutoff = iso(utcnow() - timedelta(days=retention_days))
-    cur = db.execute(db_path, "DELETE FROM location_samples WHERE created_at < ?", (cutoff,))
+    Samples attached to an incident are part of the incident record and are kept
+    with it, so they are excluded here. Everything else is ordinary movement
+    telemetry and must not accumulate into a profile.
+    """
+    from datetime import timedelta
+
+    cutoff = iso(utcnow() - timedelta(days=max(0, retention_days)))
+    cur = db.execute(
+        db_path,
+        "DELETE FROM location_samples WHERE created_at < ? AND incident_id IS NULL",
+        (cutoff,),
+    )
     return cur.rowcount or 0
+
+
+def purge_expired_share_tokens(db_path) -> int:
+    """Remove share tokens that have expired.
+
+    An expired token is already rejected by the guardian endpoint, so deleting it
+    changes no behaviour — it only removes the hash so a leaked database cannot
+    be probed for tokens that used to exist.
+    """
+    cur = db.execute(db_path, "DELETE FROM share_tokens WHERE expires_at < ?", (iso(),))
+    return cur.rowcount or 0
+
+
+def purge_stale_emergency_state(db_path, max_open_hours: int = 24) -> int:
+    """Close incidents and journeys that were left open by a crashed client.
+
+    An emergency that is still ``ARMING``/``COUNTDOWN``/``ACTIVE`` a day later is
+    not a live emergency; it is an abandoned row. It is closed as ``CANCELLED``
+    with an explicit reason rather than being silently kept open forever, and the
+    transition is recorded so the audit trail stays complete.
+    """
+    from datetime import timedelta
+
+    cutoff = iso(utcnow() - timedelta(hours=max(1, max_open_hours)))
+    rows = db.rows_to_dicts(
+        db.query(
+            db_path,
+            "SELECT id, user_id, state FROM incidents WHERE state IN ('ARMING','COUNTDOWN','ACTIVE','ESCALATING') AND COALESCE(activated_at, created_at) < ?",
+            (cutoff,),
+        )
+    )
+    for row in rows:
+        transition_incident(
+            db_path,
+            row["id"],
+            "CANCELLED",
+            from_state=row["state"],
+            detail="closed by retention policy — no client activity for 24 hours",
+            outcome="CANCELLED",
+            resolution_note="Closed automatically by the retention policy.",
+            resolved_at=iso(),
+        )
+    db.execute(
+        db_path,
+        "UPDATE journeys SET state = 'CANCELLED', ended_at = ?, updated_at = ? "
+        "WHERE state IN ('ON_JOURNEY','CHECK_IN_REQUIRED','WARNING') AND COALESCE(grace_until, due_at) < ?",
+        (iso(), iso(), cutoff),
+    )
+    return len(rows)
+
+
+def trim_audit_log(db_path, retention_days: int) -> int:
+    """Keep the audit trail useful without letting it grow without bound.
+
+    Incident and authentication events are the rows that matter for an
+    investigation, so the window is generous and configurable.
+    """
+    from datetime import timedelta
+
+    cutoff = iso(utcnow() - timedelta(days=max(1, retention_days)))
+    cur = db.execute(db_path, "DELETE FROM audit_log WHERE created_at < ?", (cutoff,))
+    return cur.rowcount or 0
+
+
+def retention_report(db_path, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """What the retention policy currently holds, for the privacy screen."""
+    config = config or {}
+    counts = {
+        "locationSamples": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM location_samples") or {"c": 0})["c"]),
+        "incidentTrailSamples": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM location_samples WHERE incident_id IS NOT NULL") or {"c": 0})["c"]),
+        "shareTokens": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM share_tokens") or {"c": 0})["c"]),
+        "expiredShareTokens": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM share_tokens WHERE expires_at < ?", (iso(),)) or {"c": 0})["c"]),
+        "auditRows": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM audit_log") or {"c": 0})["c"]),
+        "incidents": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM incidents") or {"c": 0})["c"]),
+        "notificationAttempts": int((db.query_one(db_path, "SELECT COUNT(*) AS c FROM notification_attempts") or {"c": 0})["c"]),
+    }
+    return {
+        "counts": counts,
+        "policy": {
+            "nonIncidentLocationDays": config.get("INCIDENT_LOCATION_RETENTION_DAYS"),
+            "shareTokenTtlSeconds": config.get("SHARE_TOKEN_DEFAULT_TTL"),
+            "shareTokenMaxTtlSeconds": config.get("SHARE_TOKEN_MAX_TTL"),
+            "auditRetentionDays": config.get("AUDIT_RETENTION_DAYS"),
+            "cleanupIntervalSeconds": config.get("CLEANUP_INTERVAL_SECONDS"),
+        },
+    }
 
 
 # ----------------------------------------------------------- share tokens
@@ -542,6 +816,16 @@ def add_journey_event(db_path, journey_id: str, *, to_state: str, from_state: st
         db_path,
         "INSERT INTO journey_events (journey_id, from_state, to_state, detail, created_at) VALUES (?, ?, ?, ?, ?)",
         (journey_id, from_state, to_state, detail, iso()),
+    )
+
+
+def list_journey_events(db_path, journey_id: str) -> list[dict[str, Any]]:
+    return db.rows_to_dicts(
+        db.query(
+            db_path,
+            "SELECT * FROM journey_events WHERE journey_id = ? ORDER BY id ASC",
+            (journey_id,),
+        )
     )
 
 

@@ -44,8 +44,11 @@ class ValidationError(AppError):
     status_code = 422
     code = "validation_failed"
 
-    def __init__(self, message: str = "Please check the highlighted fields.", **fields: Any):
-        super().__init__(message)
+    def __init__(self, message: str = "Please check the highlighted fields.", *, code: str | None = None, **fields: Any):
+        # ``code`` is the machine-readable reason; everything else is a field
+        # hint. Without this split a caller asking for ``code="code_mismatch"``
+        # silently produced a field literally named ``code``.
+        super().__init__(message, code=code)
         self.fields = fields
 
     def to_dict(self) -> dict[str, Any]:

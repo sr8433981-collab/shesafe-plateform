@@ -42,7 +42,7 @@ def list_all():
     journeys = repo.list_journeys(dbp, user["id"], limit=15)
     return ok(
         {
-            "journeys": [serialize_journey(j) for j in journeys],
+            "journeys": [serialize_journey(j, dbp=dbp) for j in journeys],
             "disclaimer": MONITORING_DISCLAIMER,
         }
     )
@@ -65,7 +65,7 @@ def active():
     journey = _advance(dbp, journey, escalate=False)
     return ok(
         {
-            "journey": serialize_journey(journey),
+            "journey": serialize_journey(journey, dbp=dbp),
             "requiresAction": journey["state"] in {"CHECK_IN_REQUIRED", "WARNING"},
             "disclaimer": MONITORING_DISCLAIMER,
         }
@@ -124,7 +124,7 @@ def create():
         **audit_kwargs(),
     )
     log_event("journey.started", request_id=request_id(), user_id=user["id"], journey_id=journey["id"])
-    return ok({"journey": serialize_journey(journey), "disclaimer": MONITORING_DISCLAIMER}, 201)
+    return ok({"journey": serialize_journey(journey, dbp=dbp), "disclaimer": MONITORING_DISCLAIMER}, 201)
 
 
 @bp.post("/<journey_id>/checkin")
@@ -138,7 +138,7 @@ def checkin(journey_id: str):
     if journey is None:
         raise NotFoundError("Journey not found.")
     if journey["state"] in {"ARRIVED", "CANCELLED"}:
-        return ok({"journey": serialize_journey(journey), "alreadyClosed": True})
+        return ok({"journey": serialize_journey(journey, dbp=dbp), "alreadyClosed": True})
 
     body = request.get_json(silent=True) or {}
     note = validation.optional_text(body, "note", max_length=200)
@@ -162,7 +162,7 @@ def checkin(journey_id: str):
     )
     audit(dbp, action="journey.checkin", outcome="success", actor_id=user["id"], target_type="journey", target_id=journey_id, **audit_kwargs())
     journey = repo.get_journey(dbp, user["id"], journey_id)
-    return ok({"journey": serialize_journey(journey), "checkInId": check_in["id"], "disclaimer": MONITORING_DISCLAIMER})
+    return ok({"journey": serialize_journey(journey, dbp=dbp), "checkInId": check_in["id"], "disclaimer": MONITORING_DISCLAIMER})
 
 
 @bp.post("/<journey_id>/cancel")
@@ -175,12 +175,12 @@ def cancel(journey_id: str):
     if journey is None:
         raise NotFoundError("Journey not found.")
     if journey["state"] == "CANCELLED":
-        return ok({"journey": serialize_journey(journey), "alreadyClosed": True})
+        return ok({"journey": serialize_journey(journey, dbp=dbp), "alreadyClosed": True})
     repo.transition_journey(
         dbp, journey_id, "CANCELLED", from_state=journey["state"], detail="cancelled by user", ended_at=iso()
     )
     audit(dbp, action="journey.cancel", outcome="success", actor_id=user["id"], target_type="journey", target_id=journey_id, **audit_kwargs())
-    return ok({"journey": serialize_journey(repo.get_journey(dbp, user["id"], journey_id))})
+    return ok({"journey": serialize_journey(repo.get_journey(dbp, user["id"], journey_id), dbp=dbp)})
 
 
 @bp.post("/<journey_id>/escalate")
@@ -245,7 +245,7 @@ def escalate(journey_id: str):
     incident = repo.get_incident(dbp, user["id"], incident_id)
     return ok(
         {
-            "journey": serialize_journey(repo.get_journey(dbp, user["id"], journey_id)),
+            "journey": serialize_journey(repo.get_journey(dbp, user["id"], journey_id), dbp=dbp),
             "incidentId": incident_id,
             "reference": incident["reference"] if incident else None,
             "note": "SOS is now active. Use Call 112 to reach emergency services.",

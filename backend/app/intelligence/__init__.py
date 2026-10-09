@@ -12,24 +12,40 @@ says ``mode: "unavailable"`` or ``"simulated"`` rather than inventing data.
 
 from __future__ import annotations
 
+import json
+from datetime import timezone
 from typing import Any
 
-from .. import db, geo, repo
+from .. import db, geo, repo, timeline
 from . import classifiers, places as places_mod, routing, scoring
 
 
-def _incident_features(db_path, lat: float | None, lng: float | None, radius_km: float) -> list[dict[str, Any]]:
+def _incident_features(
+    db_path,
+    lat: float | None,
+    lng: float | None,
+    radius_km: float,
+    *,
+    user_id: str | None = None,
+    exclude_since: str | None = None,
+) -> list[dict[str, Any]]:
     """Historical incidents within radius, used by the incident-density feature.
 
-    Incidents are the user's own records (SheSafe has no third-party incident
-    database, and we will not pretend otherwise).
+    Scoped to ``user_id`` when one is supplied. The query used to read every
+    incident in the table, which let any signed-in account grid-probe arbitrary
+    coordinates and read back another user's emergency locations as an
+    ``incidentCount``. Only the requesting user's own records are used, which is
+    also what "SheSafe has no third-party incident database" actually means.
+
+    ``exclude_since`` exists for the "safety data changed" comparison: scoring
+    the same place from the records that existed *before* a given moment. The
+    earlier side is recomputed from the same rows with the newer ones removed, so
+    it is a real second evaluation rather than a remembered number.
     """
     if lat is None or lng is None:
         return []
     s, w, n, e = geo.bbox(lat, lng, radius_km)
-    rows = db.query(
-        db_path,
-        """
+    sql = """
         SELECT i.id AS id,
                i.outcome AS outcome,
                i.created_at AS created_at,
@@ -37,11 +53,17 @@ def _incident_features(db_path, lat: float | None, lng: float | None, radius_km:
         FROM incidents i
         JOIN incident_locations il ON il.incident_id = i.id
         WHERE il.lat BETWEEN ? AND ? AND il.lng BETWEEN ? AND ?
-        """,
-        (s, n, w, e),
-    )
+    """
+    params: list[Any] = [s, n, w, e]
+    if user_id:
+        sql += " AND i.user_id = ?"
+        params.append(user_id)
+    rows = db.query(db_path, sql, tuple(params))
+    cutoff = _cutoff(exclude_since)
     results: list[dict[str, Any]] = []
     for row in db.rows_to_dicts(rows):
+        if cutoff and str(row["created_at"] or "") >= cutoff:
+            continue
         distance = geo.haversine_km(lat, lng, row["lat"], row["lng"])
         if distance > radius_km:
             continue
@@ -50,10 +72,29 @@ def _incident_features(db_path, lat: float | None, lng: float | None, radius_km:
     return results
 
 
-def _community_features(db_path, lat: float | None, lng: float | None, radius_km: float) -> list[dict[str, Any]]:
-    if lat is None or lng is None:
-        return repo.list_reports(db_path, limit=25)
-    return repo.list_reports(db_path, near=(lat, lng), radius_km=radius_km, limit=40)
+def _cutoff(exclude_since: str | None) -> str | None:
+    """Normalise an ISO timestamp to a comparable UTC string, or None."""
+    if not exclude_since:
+        return None
+    parsed = timeline.parse(exclude_since)
+    if parsed is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def _community_features(
+    db_path,
+    lat: float | None,
+    lng: float | None,
+    radius_km: float,
+    *,
+    exclude_since: str | None = None,
+) -> list[dict[str, Any]]:
+    rows = repo.list_reports(db_path, near=(lat, lng), radius_km=radius_km, limit=40) if lat is not None and lng is not None else repo.list_reports(db_path, limit=25)
+    cutoff = _cutoff(exclude_since)
+    if cutoff:
+        rows = [row for row in rows if str(row.get("created_at") or "") < cutoff]
+    return rows
 
 
 def _places_for_scoring(db_path, lat, lng, config, radius_km: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -81,7 +122,7 @@ def assess_point(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     hour_local = geo.local_hour()
-    incidents = _incident_features(db_path, lat, lng, radius_km)
+    incidents = _incident_features(db_path, lat, lng, radius_km, user_id=user_id)
     if user_id:
         own = repo.list_incidents(db_path, user_id, limit=25)
         known_ids = {i["id"] for i in incidents}
@@ -108,6 +149,98 @@ def assess_point(
     if lat is not None and lng is not None:
         payload["context"]["reverseGeocode"] = None
     return payload
+
+
+def compare_point(
+    *,
+    db_path,
+    config,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    dimension: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Score two points with the same engine and subtract.
+
+    This is the whole of "what changed": no second model, no heuristic narrative.
+    ``before`` and ``after`` each name a position (and optionally an hour and a
+    route), the engine scores each one exactly as it would score a live request,
+    and :func:`scoring.compare` subtracts the results.
+
+    Only one dimension is allowed to vary per request, so the label in the UI
+    always matches the arithmetic. A request that changes nothing is refused.
+    """
+    hour_local = geo.local_hour()
+    radius_km = float(before.get("radiusKm") or after.get("radiusKm") or 2.0)
+
+    def evaluate(spec: dict[str, Any]) -> scoring.Assessment:
+        lat, lng = spec.get("lat"), spec.get("lng")
+        # Only the "data" dimension removes records. For every other dimension the
+        # two sides must read exactly the same rows, so that any movement in the
+        # score is attributable to the one thing the caller said changed.
+        exclude_since = spec.get("excludeSince") if dimension == "data" else None
+        incidents = _incident_features(
+            db_path, lat, lng, radius_km, user_id=user_id, exclude_since=exclude_since
+        )
+        if user_id:
+            own = repo.list_incidents(db_path, user_id, limit=25)
+            known_ids = {i["id"] for i in incidents}
+            incidents.extend(
+                {"id": i["id"], "severity": "high", "created_at": i["created_at"], "distance_km": 0.0}
+                for i in own
+                if i["id"] not in known_ids
+                and (not exclude_since or str(i.get("created_at") or "") < _cutoff(exclude_since))
+            )
+        near_places, _ = _places_for_scoring(db_path, lat, lng, config, radius_km)
+        return scoring.assess(
+            lat=lat,
+            lng=lng,
+            hour_local=int(spec.get("hourLocal") if spec.get("hourLocal") is not None else hour_local),
+            incidents=incidents,
+            places=near_places,
+            reports=_community_features(db_path, lat, lng, radius_km, exclude_since=exclude_since),
+            route=spec.get("route"),
+            radius_km=radius_km,
+        )
+
+    before_assessment = evaluate(before)
+    after_assessment = evaluate(after)
+
+    # The request must actually have varied something. Otherwise the comparison
+    # would report "unchanged" for a reason the caller got wrong.
+    if dimension == "data":
+        # A data comparison is meaningful only when there was a record to remove.
+        if before_assessment.context["incidentCount"] == after_assessment.context["incidentCount"] and \
+           before_assessment.context["communityReportCount"] == after_assessment.context["communityReportCount"]:
+            raise ValueError(
+                "No safety record was created after the supplied cutoff, so there is no data change to show. "
+                "Raise an SOS or file a community report first, then compare."
+            )
+    elif _same_inputs(before, after, radius_km):
+        raise ValueError(
+            "Nothing was varied between the two scores. Change the position, the hour, the route "
+            "or the underlying safety data — not more than one at a time."
+        )
+
+    change = scoring.compare(before_assessment, after_assessment, dimension=dimension)
+    payload = change.to_dict()
+    payload["before"]["assessment"] = before_assessment.to_dict()
+    payload["after"]["assessment"] = after_assessment.to_dict()
+    payload["requested"] = {"before": before, "after": after}
+    return payload
+
+
+def _same_inputs(before: dict[str, Any], after: dict[str, Any], radius_km: float) -> bool:
+    def norm(spec):
+        return (
+            spec.get("lat"),
+            spec.get("lng"),
+            spec.get("hourLocal"),
+            spec.get("radiusKm") or radius_km,
+            json.dumps(spec.get("route"), sort_keys=True) if spec.get("route") else None,
+        )
+
+    return norm(before) == norm(after)
 
 
 def plan_routes(
@@ -158,7 +291,7 @@ def plan_routes(
                     lat=slat,
                     lng=slng,
                     hour_local=hour_local,
-                    incidents=_incident_features(db_path, slat, slng, 1.0),
+                    incidents=_incident_features(db_path, slat, slng, 1.0, user_id=user_id),
                     places=shifted_places,
                     reports=_community_features(db_path, slat, slng, 1.5),
                     route=route,
@@ -226,7 +359,11 @@ def _why_text(worst: scoring.Assessment, best: scoring.Assessment, index: int, p
         if feature.observed and feature.points > 1.0:
             lines.append(f"{feature.label}: {feature.reason}")
     for feature in best.features:
-        if feature.key == "safety_infrastructure" and feature.observed and feature.value > 0.55:
+        # ``safety_infrastructure.value`` is RISK, i.e. 1 - helpfulness: a low
+        # value means help is nearby. Claiming the route "passes closer to" help
+        # requires a LOW value. The comparison used to be ``> 0.55``, which fired
+        # exactly when the nearest facility was far away.
+        if feature.key == "safety_infrastructure" and feature.observed and feature.value <= 0.55:
             lines.append("Passes closer to police, hospital or support facilities.")
             break
     return lines[:4]

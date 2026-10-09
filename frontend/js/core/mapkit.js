@@ -9,21 +9,52 @@
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ATTRIBUTION = '&copy; OpenStreetMap contributors';
 
-export const CATEGORY_STYLE = {
-  police: { glyph: '👮', color: '#e11d48', label: 'Police' },
-  hospital: { glyph: '🏥', color: '#2563eb', label: 'Hospital' },
-  pharmacy: { glyph: '💊', color: '#059669', label: 'Pharmacy' },
-  shelter: { glyph: '🏠', color: '#7c3aed', label: 'Shelter' },
-  women_centre: { glyph: '🌸', color: '#db2777', label: "Women's support" },
-  emergency_service: { glyph: '🚨', color: '#dc2626', label: 'Emergency service' },
-  safe_public: { glyph: '💡', color: '#0891b2', label: 'Safe public place' },
+/**
+ * Read a colour from the design tokens.
+ *
+ * Leaflet needs concrete colour strings, so the palette lives in CSS and is read
+ * once here. Hard-coding hex values in the client was one of the Phase 2 audit
+ * findings: it duplicated the design system and drifted from it in dark mode.
+ */
+const tokenCache = new Map();
+
+export function token(name, fallback = 'currentColor') {
+  if (tokenCache.has(name)) return tokenCache.get(name);
+  let value = '';
+  try {
+    value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  } catch {
+    value = '';
+  }
+  const resolved = value || fallback;
+  tokenCache.set(name, resolved);
+  return resolved;
+}
+
+export const MAP_TOKENS = {
+  trail: '--map-trail',
+  accuracy: '--map-accuracy',
+  accuracyFill: '--map-accuracy-fill',
+  user: '--map-user',
+  userHalo: '--map-user-halo',
 };
 
-export const ROUTE_COLORS = {
-  FASTEST: '#2563eb',
-  SAFEST: '#059669',
-  BALANCED: '#7c3aed',
-  ALTERNATIVE: '#94a3b8',
+/** One vocabulary: an icon name plus the token that colours it. */
+export const CATEGORY_STYLE = {
+  police: { iconName: 'shield', token: '--poi-police', label: 'Police' },
+  hospital: { iconName: 'hospital', token: '--poi-hospital', label: 'Hospital' },
+  pharmacy: { iconName: 'pill', token: '--poi-pharmacy', label: 'Pharmacy' },
+  shelter: { iconName: 'home', token: '--poi-shelter', label: 'Shelter' },
+  women_centre: { iconName: 'community', token: '--poi-women', label: "Women's support" },
+  emergency_service: { iconName: 'siren', token: '--poi-emergency', label: 'Emergency service' },
+  safe_public: { iconName: 'building', token: '--poi-public', label: 'Safe public place' },
+};
+
+export const ROUTE_TOKENS = {
+  FASTEST: '--route-fastest',
+  SAFEST: '--route-safest',
+  BALANCED: '--route-balanced',
+  ALTERNATIVE: '--route-alternative',
 };
 
 export function isLeafletAvailable() {
@@ -48,21 +79,44 @@ export function userIcon(incident = false) {
 }
 
 export function poiIcon(category) {
-  const style = CATEGORY_STYLE[category] || { glyph: '•', color: '#475569' };
-  return window.L.divIcon({
-    className: '',
-    html: `<span class="poi-pin" style="background:${style.color}">${style.glyph}</span>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-  });
+  const style = CATEGORY_STYLE[category] || { iconName: 'pin', token: '--poi-default' };
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICON_PATHS[style.iconName] || ICON_PATHS.pin);
+  svg.appendChild(path);
+
+  const wrapper = document.createElement('span');
+  wrapper.className = 'poi-pin';
+  wrapper.style.background = token(style.token);
+  wrapper.appendChild(svg);
+  return window.L.divIcon({ className: '', html: wrapper.outerHTML, iconSize: [28, 28], iconAnchor: [14, 14] });
 }
+
+/** Path data mirrored from ./ui.js so mapkit stays dependency-free. */
+const ICON_PATHS = {
+  pin: 'M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z M12 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
+  shield: 'M12 3l7 3v5.5c0 4.3-2.9 8.2-7 9.5-4.1-1.3-7-5.2-7-9.5V6l7-3z',
+  hospital: 'M4 21V8l8-4 8 4v13M12 10v6M9 13h6',
+  pill: 'M8.5 3.5a5 5 0 017 7l-5 5a5 5 0 01-7-7l5-5zM6 6l7 7',
+  home: 'M4 11l8-7 8 7v9h-5v-6H9v6H4v-9z',
+  community: 'M3 11l9-7 9 7M5 10v10h14V10M9 20v-6h6v6',
+  siren: 'M7 18v-5a5 5 0 0110 0v5M4 18h16M5 21h14M12 3v2',
+  building: 'M4 21V6l7-3v18M11 21h9V10l-9-3M7 9v.01M7 13v.01M7 17v.01M15 13v.01M15 17v.01',
+};
 
 export function placePopup(place) {
   const wrap = document.createElement('div');
   const name = document.createElement('strong');
   name.textContent = place.name;
   const meta = document.createElement('div');
-  meta.style.cssText = 'font-size:0.78rem;color:#64748b;margin:2px 0 6px';
+  meta.className = 'map-popup__meta';
 
   const bits = [place.distanceText];
   if (place.openState === 'open') bits.push('Open now (per OpenStreetMap tag)');
@@ -71,23 +125,21 @@ export function placePopup(place) {
   meta.textContent = bits.join(' · ');
 
   const links = document.createElement('div');
-  links.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+  links.className = 'map-popup__actions';
 
   const navigate = document.createElement('a');
+  navigate.className = 'map-popup__action';
   navigate.href = `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lng}`;
   navigate.target = '_blank';
   navigate.rel = 'noopener noreferrer';
   navigate.textContent = 'Navigate';
-  navigate.style.cssText =
-    'font-size:0.78rem;font-weight:700;padding:4px 10px;border-radius:999px;background:#059669;color:#fff;text-decoration:none';
   links.appendChild(navigate);
 
   if (place.phone) {
     const call = document.createElement('a');
+    call.className = 'map-popup__action map-popup__action--call';
     call.href = `tel:${String(place.phone).replace(/[^+\d]/g, '')}`;
     call.textContent = 'Call';
-    call.style.cssText =
-      'font-size:0.78rem;font-weight:700;padding:4px 10px;border-radius:999px;background:#2563eb;color:#fff;text-decoration:none';
     links.appendChild(call);
   }
 
@@ -95,7 +147,7 @@ export function placePopup(place) {
 
   if (place.provenance === 'simulated_demo_dataset') {
     const tag = document.createElement('div');
-    tag.style.cssText = 'margin-top:6px;font-size:0.68rem;font-weight:800;color:#92400e;letter-spacing:0.05em';
+    tag.className = 'map-popup__simulated';
     tag.textContent = 'SIMULATED DEMO DATA';
     wrap.appendChild(tag);
   }

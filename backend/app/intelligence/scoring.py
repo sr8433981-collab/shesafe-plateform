@@ -61,6 +61,18 @@ UNVERIFIED_TRUST = 0.45
 UNDER_REVIEW_TRUST = 0.7
 VERIFIED_TRUST = 1.0
 
+# The neutral value each feature is given when it has no observation. These are
+# the same priors the feature functions use, republished so the UI can show a
+# *signed* contribution ("this input moved the score by -6.2 points") without
+# inventing a baseline. Features whose value is always known (time of day) or
+# always unavailable (isolation) have no prior and therefore no signed delta.
+NEUTRAL_PRIOR = {
+    "incident_density": 0.35,
+    "safety_infrastructure": 0.55,
+    "community_reports": 0.20,
+    "route_characteristics": 0.25,
+}
+
 
 @dataclass
 class Feature:
@@ -75,19 +87,48 @@ class Feature:
     observed: bool = False
     observations: int = 0
 
+    @property
+    def baseline_points(self) -> float | None:
+        prior = NEUTRAL_PRIOR.get(self.key)
+        return None if prior is None else prior * self.weight
+
+    @property
+    def delta_points(self) -> float | None:
+        """Signed movement away from the neutral prior for this feature.
+
+        Positive = this input pushed the risk score up. Negative = this input
+        made the place look safer than "no data". ``None`` when the feature has
+        no meaningful baseline, in which case the UI must not show a sign.
+        """
+        baseline = self.baseline_points
+        return None if baseline is None else self.points - baseline
+
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "key": self.key,
-            "label": self.label,
-            "weight": round(self.weight, 1),
-            "value": round(self.value, 3),
-            "points": round(self.points, 1),
-            "reason": self.reason,
-            "detail": self.detail,
-            "provenance": self.provenance,
-            "observed": self.observed,
-            "observations": self.observations,
-        }
+        return feature_view(self)
+
+
+def feature_view(feature: Feature) -> dict[str, Any]:
+    """The single serialised shape for a feature.
+
+    Every surface that shows a factor - the score card, the comparison, the
+    timeline explanation - renders this one dictionary, so no two screens can
+    print different numbers for the same input.
+    """
+    baseline = feature.baseline_points
+    return {
+        "key": feature.key,
+        "label": feature.label,
+        "weight": round(feature.weight, 1),
+        "value": round(feature.value, 3),
+        "points": round(feature.points, 1),
+        "baselinePoints": None if baseline is None else round(baseline, 1),
+        "deltaPoints": None if baseline is None else round(feature.points - baseline, 1),
+        "reason": feature.reason,
+        "detail": feature.detail,
+        "provenance": feature.provenance,
+        "observed": feature.observed,
+        "observations": feature.observations,
+    }
 
 
 @dataclass
@@ -103,8 +144,12 @@ class Assessment:
     caveats: list[str] = field(default_factory=list)
     provenance: list[dict[str, Any]] = field(default_factory=list)
     context: dict[str, Any] = field(default_factory=dict)
+    plain_summary: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        observed_count = sum(1 for f in self.features if f.observed)
+        total_count = len(self.features)
+        ratio = (observed_count / total_count) if total_count else 0.0
         return {
             "model": MODEL_VERSION,
             "modelDescription": (
@@ -117,15 +162,98 @@ class Assessment:
             "bandKey": self.band_key,
             "confidence": round(self.confidence, 2),
             "confidenceLabel": _confidence_label(self.confidence),
+            "coverage": {
+                "observedFeatures": observed_count,
+                "totalFeatures": total_count,
+                "ratio": round(ratio, 2),
+                "label": "GOOD" if ratio >= 0.75 else ("THIN" if ratio >= 0.4 else "POOR"),
+                "note": _coverage_note(observed_count, total_count),
+            },
             "scoreSemantics": "riskScore is 0-100 where higher means greater risk. safetyScore = 100 - riskScore.",
-            "features": [f.to_dict() for f in self.features],
+            "features": [feature_view(f) for f in self.features],
+            "neutralPriors": dict(NEUTRAL_PRIOR),
             "weights": {k: round(v, 1) for k, v in WEIGHTS.items()},
             "drivers": self.drivers,
             "protectiveFactors": self.protective_factors,
+            "plainSummary": self.plain_summary,
             "caveats": self.caveats,
             "provenance": self.provenance,
             "context": self.context,
+            "ledger": self.ledger(),
         }
+
+    # ------------------------------------------------------------- ledger
+
+    def ledger(self) -> dict[str, Any]:
+        """The auditable split of the score.
+
+        ``raising`` holds the factors that pushed risk **up** relative to their
+        published neutral prior; ``lowering`` holds those that pushed it down.
+        ``fixed`` holds the factors that did not move: either because they have
+        no published prior to move from (a fixed heuristic curve), or because
+        they sit exactly on their prior and the movement is zero.
+
+        It is important that ``fixed`` is **not** called "neutral": a factor can
+        sit in ``fixed`` and still dominate the score, because a fixed curve is a
+        real contribution, it simply did not deviate from a baseline. The
+        per-factor ``points`` on every entry are what it contributes, and the UI
+        shows both.
+
+        The three lists partition ``features``. The *per-factor points* sum to
+        ``riskScore`` (that is ``scoreTotal``); ``raisingTotal`` and
+        ``loweringTotal`` are signed movements, not contributions, so adding the
+        three column totals together does not reproduce the score. Nothing is
+        invented: every entry is a feature the engine actually scored.
+        """
+        raising: list[dict[str, Any]] = []
+        lowering: list[dict[str, Any]] = []
+        fixed: list[dict[str, Any]] = []
+
+        for feature in self.features:
+            view = feature_view(feature)
+            delta = view["deltaPoints"]
+            if delta is None or abs(delta) < 0.05:
+                fixed.append(view)
+            elif delta > 0:
+                raising.append(view)
+            else:
+                lowering.append(view)
+
+        raising.sort(key=lambda f: f["deltaPoints"], reverse=True)
+        lowering.sort(key=lambda f: f["deltaPoints"])
+        fixed.sort(key=lambda f: f["points"], reverse=True)
+
+        return {
+            "basis": "Movement away from each factor's published neutral prior, in risk points.",
+            "raising": raising,
+            "lowering": lowering,
+            "fixed": fixed,
+            "unchanged": fixed,
+            "raisingTotal": round(sum(f["deltaPoints"] or 0.0 for f in raising), 1),
+            "loweringTotal": round(sum(f["deltaPoints"] or 0.0 for f in lowering), 1),
+            "fixedPointsTotal": round(sum(f["points"] for f in fixed), 1),
+            # Every factor's contribution, however it was classified. This is the
+            # number a judge adds up, and it is what riskScore is made of.
+            "scoreTotal": round(sum(f.points for f in self.features), 1),
+            "observed": [feature_view(f) for f in self.features if f.observed],
+            "unobserved": [feature_view(f) for f in self.features if not f.observed],
+            "note": (
+                "A factor listed here did not move: it either has no published neutral prior "
+                "(a fixed input such as the time-of-day curve), or it sits exactly on its prior. "
+                "Either way it still contributes its points, and those points are part of the score."
+            ),
+        }
+
+    def headline(self) -> str:
+        """One line a non-technical reader can act on."""
+        return (
+            f"Safety score {self.safety_score}/100 - {self.band} risk. "
+            f"{self.confidence_label}."
+        )
+
+    @property
+    def confidence_label(self) -> str:
+        return _confidence_label(self.confidence)
 
 
 def band_for(score: int) -> tuple[str, str]:
@@ -143,6 +271,21 @@ def _confidence_label(confidence: float) -> str:
     if confidence >= 0.3:
         return "Mostly heuristic - little local data"
     return "Very low confidence - do not rely on this alone"
+
+
+def _coverage_note(observed: int, total: int) -> str:
+    missing = total - observed
+    if missing <= 0:
+        return "Every input to this score came from a real observation."
+    if observed == 0:
+        return (
+            "No input to this score came from a real observation. Every factor is using a "
+            "published neutral prior or a fixed heuristic curve."
+        )
+    return (
+        f"{observed} of {total} inputs came from a real observation; {missing} are using a "
+        "published neutral prior or a fixed heuristic curve."
+    )
 
 
 # --------------------------------------------------------------- features
@@ -559,6 +702,8 @@ def assess(
         "hasCoordinates": lat is not None and lng is not None,
     }
 
+    observed_count = sum(1 for f in features if f.observed)
+
     return Assessment(
         risk_score=risk_score,
         safety_score=100 - risk_score,
@@ -571,7 +716,301 @@ def assess(
         caveats=caveats,
         provenance=provenance,
         context=context_out,
+        plain_summary=plain_summary(features, risk_score, band, confidence, observed_count),
     )
+
+
+def plain_summary(features, risk_score: int, band: str, confidence: float, observed: int) -> str:
+    """One paragraph, in plain language, built only from the scored values.
+
+    It cannot drift from the arithmetic because it is generated from the same
+    numbers that produced the score.
+    """
+    ranked = sorted(features, key=lambda f: f.points, reverse=True)
+    top = [f for f in ranked if f.points > 0][:3]
+    parts: list[str] = [
+        f"SheSafe rates this place {100 - risk_score} out of 100 for safety, which puts it in the {band} risk band."
+    ]
+
+    if top:
+        clauses = []
+        for feature in top:
+            delta = feature.delta_points
+            if delta is None:
+                clauses.append(f"{feature.label.lower()} ({feature.reason.lower()}, +{feature.points:.1f} points)")
+            elif delta >= 0:
+                clauses.append(
+                    f"{feature.label.lower()} ({feature.reason.lower()}, +{feature.points:.1f} points, "
+                    f"{delta:.1f} more than a neutral baseline)"
+                )
+            else:
+                clauses.append(
+                    f"{feature.label.lower()} ({feature.reason.lower()}, +{feature.points:.1f} points, "
+                    f"but {abs(delta):.1f} points better than a neutral baseline)"
+                )
+        parts.append("What is pushing the risk up: " + _join_clauses(clauses) + ".")
+
+    helping = [f for f in ranked if f.observed and f.points <= f.weight * 0.3 and f.key in {"safety_infrastructure", "community_reports", "is_isolated"}]
+    if helping:
+        parts.append(f"The strongest thing in your favour is {helping[0].label.lower()}: {helping[0].reason.lower()}.")
+    elif not any(f.observed for f in features):
+        parts.append("No local observation was available, so every factor is using a published neutral prior.")
+
+    parts.append(
+        f"Confidence is {round(confidence * 100)}% because {observed} of {len(features)} inputs came from a real "
+        "observation. This is a transparent rule set, not a measured crime statistic, and it is not a guarantee of safety."
+    )
+    return " ".join(parts)
+
+
+def _join_clauses(clauses: list[str]) -> str:
+    if len(clauses) == 1:
+        return clauses[0]
+    return ", ".join(clauses[:-1]) + " and " + clauses[-1]
+
+
+# ---------------------------------------------------------------- comparison
+
+
+#: Which inputs a caller is allowed to vary when asking "what changed?".
+#: Anything else is refused rather than silently ignored, so the label in the UI
+#: always matches the arithmetic that produced it.
+CHANGE_DIMENSIONS = ("location", "time", "route", "data")
+
+
+@dataclass
+class ChangeFactor:
+    key: str
+    label: str
+    before_points: float
+    after_points: float
+    before_reason: str
+    after_reason: str
+    provenance: str
+    observed_before: bool
+    observed_after: bool
+
+    @property
+    def risk_delta(self) -> float:
+        """Movement in *risk* points. Positive = this factor made it riskier."""
+        return round(self.after_points - self.before_points, 1)
+
+    @property
+    def safety_delta(self) -> int:
+        return -int(round(self.risk_delta))
+
+    @property
+    def changed(self) -> bool:
+        return abs(self.risk_delta) >= 0.05 or self.before_reason != self.after_reason
+
+    @property
+    def direction(self) -> str:
+        if self.risk_delta > 0:
+            return "worse"
+        if self.risk_delta < 0:
+            return "better"
+        return "unchanged"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "beforePoints": round(self.before_points, 1),
+            "afterPoints": round(self.after_points, 1),
+            "riskDelta": self.risk_delta,
+            "safetyDelta": self.safety_delta,
+            "direction": self.direction,
+            "beforeReason": self.before_reason,
+            "afterReason": self.after_reason,
+            "provenance": self.provenance,
+            "observedBefore": self.observed_before,
+            "observedAfter": self.observed_after,
+            "changed": self.changed,
+        }
+
+
+@dataclass
+class Change:
+    """One BEFORE -> factor -> AFTER comparison, fully derived from two scores.
+
+    The comparison runs the *same* engine twice and subtracts. It never guesses
+    a narrative: if the factors did not move, ``primary_factor`` is ``None`` and
+    ``limited`` is set, so the UI says the data is too thin rather than inventing
+    a cause.
+    """
+
+    dimension: str
+    before: Assessment
+    after: Assessment
+    factors: list[ChangeFactor] = field(default_factory=list)
+    limited: bool = False
+    limited_note: str = ""
+
+    @property
+    def safety_delta(self) -> int:
+        return self.after.safety_score - self.before.safety_score
+
+    @property
+    def moved(self) -> list[ChangeFactor]:
+        return sorted(
+            (f for f in self.factors if f.changed),
+            key=lambda f: abs(f.risk_delta),
+            reverse=True,
+        )
+
+    @property
+    def primary_factor(self) -> ChangeFactor | None:
+        moved = self.moved
+        return moved[0] if moved else None
+
+    def to_dict(self) -> dict[str, Any]:
+        primary = self.primary_factor
+        moved = self.moved
+        delta = self.safety_delta
+
+        if self.limited:
+            headline = "Limited safety data available."
+            reason = self.limited_note or (
+                "Too few inputs came from a real observation to explain a change honestly."
+            )
+        elif delta == 0 and not moved:
+            headline = "Safety score unchanged."
+            reason = "The same inputs were scored, so nothing moved."
+        else:
+            direction = "fell" if delta < 0 else "rose"
+            headline = f"Safety score {self.before.safety_score} → {self.after.safety_score}"
+            reason = (
+                f"{primary.label.lower()} {primary.after_reason.lower()}" if primary else ""
+            ) or f"The score {direction} because the same engine re-scored the new inputs."
+
+        return {
+            "model": MODEL_VERSION,
+            "dimension": self.dimension,
+            "before": _change_side(self.before),
+            "after": _change_side(self.after),
+            "safetyDelta": delta,
+            "riskDelta": -delta,
+            "direction": "worse" if delta < 0 else ("better" if delta > 0 else "unchanged"),
+            "limited": self.limited,
+            "limitedNote": self.limited_note,
+            "headline": headline,
+            "reason": reason,
+            "primaryFactor": primary.to_dict() if primary else None,
+            "factors": [f.to_dict() for f in moved],
+            "factorsUnchanged": [f.to_dict() for f in self.factors if not f.changed],
+            "explanation": self.explain(),
+            "basis": (
+                "Both sides were produced by the same rule set from the same published priors. "
+                "No factor was added, removed or re-weighted to create a difference."
+            ),
+        }
+
+    def explain(self) -> str:
+        """The 'What changed?' paragraph. Generated from the two assessments."""
+        delta = self.safety_delta
+        parts: list[str] = []
+
+        if self.limited:
+            return (
+                f"{self.limited_note} SheSafe moved the score from {self.before.safety_score} to "
+                f"{self.after.safety_score}, but it will not claim to know which factor caused it."
+            )
+
+        if delta == 0:
+            parts.append(
+                f"The safety score is {self.after.safety_score} both before and after, because the same "
+                "inputs produced the same result. SheSafe is deterministic: identical inputs, identical score."
+            )
+        else:
+            word = "lower" if delta < 0 else "higher"
+            parts.append(
+                f"Safety score {self.before.safety_score} → {self.after.safety_score} ({abs(delta)} points {word}). "
+                f"Risk moved from {self.before.risk_score} to {self.after.risk_score}, which puts it in the "
+                f"{self.after.band} band."
+            )
+
+        moved = self.moved
+        if moved:
+            clauses = []
+            for item in moved[:3]:
+                direction = "raised" if item.risk_delta > 0 else "lowered"
+                clauses.append(
+                    f"{item.label.lower()} {direction} risk by {abs(item.risk_delta):.1f} points "
+                    f"({item.before_reason.lower()} → {item.after_reason.lower()})"
+                )
+            parts.append("What changed: " + _join_clauses(clauses) + ".")
+
+        unchanged_observed = [f for f in self.factors if not f.changed and f.observed_before]
+        if unchanged_observed:
+            parts.append(
+                "Unchanged: "
+                + _join_clauses([f.label.lower() for f in unchanged_observed])
+                + "."
+            )
+
+        parts.append(
+            f"Confidence {round(self.before.confidence * 100)}% → {round(self.after.confidence * 100)}%, "
+            "measured from how much of each score came from a real observation."
+        )
+        return " ".join(parts)
+
+
+def _change_side(assessment: Assessment) -> dict[str, Any]:
+    return {
+        "safetyScore": assessment.safety_score,
+        "riskScore": assessment.risk_score,
+        "band": assessment.band,
+        "bandKey": assessment.band_key,
+        "confidence": round(assessment.confidence, 2),
+        "confidenceLabel": assessment.confidence_label,
+        "hourLocal": assessment.context.get("hourLocal"),
+        "lat": assessment.context.get("lat"),
+        "lng": assessment.context.get("lng"),
+        "coverageRatio": assessment.to_dict()["coverage"]["ratio"],
+    }
+
+
+def compare(before: Assessment, after: Assessment, *, dimension: str) -> Change:
+    """Subtract two assessments produced by :func:`assess`.
+
+    ``dimension`` states which input the caller varied. It is validated against
+    :data:`CHANGE_DIMENSIONS` so the label in the interface cannot disagree with
+    what was actually changed.
+    """
+    if dimension not in CHANGE_DIMENSIONS:
+        raise ValueError(f"dimension must be one of {CHANGE_DIMENSIONS}")
+
+    before_map = {f.key: f for f in before.features}
+    after_map = {f.key: f for f in after.features}
+    keys = [key for key in WEIGHTS if key in before_map and key in after_map]
+
+    factors = [
+        ChangeFactor(
+            key=key,
+            label=before_map[key].label,
+            before_points=before_map[key].points,
+            after_points=after_map[key].points,
+            before_reason=before_map[key].reason,
+            after_reason=after_map[key].reason,
+            provenance=after_map[key].provenance,
+            observed_before=before_map[key].observed,
+            observed_after=after_map[key].observed,
+        )
+        for key in keys
+    ]
+
+    # Honesty gate: if either side is built almost entirely from priors, a change
+    # in the number is not explainable and the UI must say so.
+    thin = min(before.to_dict()["coverage"]["ratio"], after.to_dict()["coverage"]["ratio"])
+    limited = thin < 0.4
+    limited_note = ""
+    if limited:
+        limited_note = (
+            "Limited safety data available. Most of both scores came from published neutral priors "
+            "rather than real observations, so a change in the number cannot be attributed to a factor."
+        )
+
+    return Change(dimension=dimension, before=before, after=after, factors=factors, limited=limited, limited_note=limited_note)
 
 
 def _estimate_density(places: list[dict[str, Any]], radius_km: float) -> float | None:

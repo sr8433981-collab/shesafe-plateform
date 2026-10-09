@@ -21,12 +21,12 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, current_app, g, request
 
 from .. import db as dbmod
-from .. import geo, repo, validation
+from .. import geo, repo, timeline, validation
 from ..errors import AuthorizationError, ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
 from ..logging_utils import audit, iso, log_event, new_id
 from ..security import hash_token, login_required, rate_limit, require_user
 from ..validation import require_json
-from .helpers import age_seconds, db_path, is_stale, ok, public_location
+from .helpers import age_seconds, db_path, is_stale, ok, public_location, serialize_journey_timeline
 
 bp = Blueprint("location", __name__, url_prefix="/api")
 
@@ -261,6 +261,35 @@ def track(token: str):
         ]
 
     stale = is_stale(sample["created_at"], _stale_after()) if sample else True
+    journey = repo.active_journey(dbp, record["user_id"])
+    notifications = repo.list_notifications(dbp, incident["id"]) if incident else []
+
+    delivery = {
+        "attempted": len(notifications),
+        "delivered": sum(1 for n in notifications if n["status"] == "sent"),
+        "simulated": sum(1 for n in notifications if n["status"] == "simulated"),
+        "failed": sum(1 for n in notifications if n["status"] == "failed"),
+        "unavailable": sum(1 for n in notifications if n["status"] == "unavailable"),
+        "skipped": sum(1 for n in notifications if n["status"] == "skipped"),
+        "channels": sorted({n["channel"] for n in notifications}),
+        "lastAttemptAt": notifications[-1]["created_at"] if notifications else None,
+    }
+
+    # Guardian link state, stated explicitly. A person following someone during an
+    # emergency must never have to guess whether what they are looking at is
+    # current, so this is one authoritative word the client renders verbatim.
+    # "reconnecting" is a *client* observation (its own polls are failing) and is
+    # layered on top of this server truth rather than being inferred here.
+    expires_at = _parse(record["expires_at"])
+    if record["revoked_at"]:
+        link_state = "revoked"
+    elif expires_at and expires_at < datetime.now(timezone.utc):
+        link_state = "expired"
+    elif stale:
+        link_state = "stale"
+    else:
+        link_state = "live"
+
     return ok(
         {
             "subject": {
@@ -281,18 +310,129 @@ def track(token: str):
                 "state": incident["state"],
                 "outcome": incident.get("outcome"),
                 "startedAt": incident.get("started_at") or incident.get("created_at"),
+                "activatedAt": incident.get("activated_at"),
                 "resolvedAt": incident.get("resolved_at"),
+                "location": public_location(repo.incident_anchor(dbp, incident["id"])),
+                "elapsedMinutes": _elapsed_minutes(incident),
             },
+            "journey": None
+            if journey is None
+            else {
+                "state": journey["state"],
+                "origin": journey.get("origin_label"),
+                "destination": journey.get("destination_label"),
+                "dueAt": journey.get("due_at"),
+                "expectedMinutes": journey.get("expected_minutes"),
+            },
+            "delivery": delivery,
+            "linkState": link_state,
+            "linkStateLabel": LINK_STATE_LABELS[link_state],
+            "timeline": _guardian_timeline(dbp, incident, sample, delivery, stale, journey),
+            "safetyTimeline": _guardian_safety_timeline(dbp, incident, sample, delivery, stale, journey),
+            "journeyTimeline": serialize_journey_timeline(dbp, journey) if journey else [],
             "share": {
                 "label": record["label"],
                 "scope": record["scope"],
                 "expiresAt": record["expires_at"],
+                "viewCount": record["view_count"],
             },
             "disclaimer": (
                 "This is the last position received by SheSafe. If 'Sharing' is false the user "
                 "is not currently sending location - the position may be old. Call 112 for emergencies."
             ),
         }
+    )
+
+
+def _elapsed_minutes(incident) -> int | None:
+    start = incident.get("activated_at") or incident.get("started_at") or incident.get("created_at")
+    end = incident.get("resolved_at")
+    if not start or not end:
+        return None
+    try:
+        started = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        ended = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0, int(round((ended - started).total_seconds() / 60)))
+
+
+#: The four states a guardian must be able to distinguish at a glance, plus the
+#: expiry case. Rendered verbatim by the client, so the screen and this endpoint
+#: can never use different words for the same situation.
+LINK_STATE_LABELS = {
+    "live": "LIVE",
+    "stale": "STALE — not currently sending location",
+    "reconnecting": "RECONNECTING",
+    "revoked": "REVOKED",
+    "expired": "EXPIRED",
+}
+
+
+def _guardian_timeline(dbp, incident, sample, delivery, stale, journey=None) -> list[dict[str, Any]]:
+    """The five steps a guardian actually needs, in order.
+
+    Every entry is derived from a stored row. A step that has not happened is
+    omitted rather than shown optimistically, so the list never implies a
+    notification that was not attempted.
+    """
+    steps: list[dict[str, Any]] = []
+    if incident is None:
+        return steps
+
+    steps.append({"step": "SOS ACTIVATED", "state": "ACTIVE", "at": incident.get("activated_at") or incident.get("created_at")})
+
+    if delivery["attempted"]:
+        outcome = ("DELIVERED" if delivery["delivered"] else
+                   "SIMULATED" if delivery["simulated"] else
+                   "FAILED" if delivery["failed"] else "UNAVAILABLE")
+        steps.append({
+            "step": f"CONTACTS NOTIFIED · {outcome}",
+            "state": "NOTIFIED",
+            "at": delivery["lastAttemptAt"],
+        })
+
+    steps.append({
+        "step": "LOCATION SHARING ACTIVE" if not stale else "LOCATION SHARING STOPPED",
+        "state": "SHARING",
+        "at": incident.get("activated_at"),
+    })
+
+    if sample:
+        steps.append({"step": "LATEST UPDATE", "state": "UPDATE", "at": sample["created_at"]})
+
+    if incident.get("resolved_at"):
+        steps.append({"step": "STOOD DOWN", "state": "RESOLVED", "at": incident["resolved_at"]})
+    return steps
+
+
+def _guardian_safety_timeline(dbp, incident, sample, delivery, stale, journey=None) -> list[dict[str, Any]]:
+    """The guardian record in the shared timeline vocabulary.
+
+    Same four facts per event as everywhere else — timestamp, type, status, a
+    sentence a person can read — so a guardian reads the emergency the same way
+    the person in it does.
+    """
+    if incident is None:
+        return []
+
+    events = repo.list_incident_events(dbp, incident["id"])
+    notifications = repo.list_notifications(dbp, incident["id"])
+    steps = _guardian_timeline(dbp, incident, sample, delivery, stale, journey)
+
+    return timeline.merge(
+        [timeline.event(e["created_at"], e["to_state"], detail=e["detail"], actor=e["actor"]) for e in events],
+        [timeline.location_event(sample, label="Latest position update")] if sample else [],
+        [timeline.notification_event(n) for n in notifications],
+        [
+            timeline.event(
+                step.get("at"),
+                step.get("state"),
+                category="sharing" if step.get("state") == "SHARING" else "sos",
+                detail=step.get("step"),
+            )
+            for step in steps
+        ],
     )
 
 

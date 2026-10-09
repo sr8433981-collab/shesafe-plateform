@@ -23,7 +23,35 @@ from typing import Any, Iterable, Sequence
 
 _local = threading.local()
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+#: Additive column migrations, applied on every start.
+#:
+#: ``CREATE TABLE IF NOT EXISTS`` cannot add a column to a table that already
+#: exists, so each entry here is applied with ``ALTER TABLE ... ADD COLUMN`` when
+#: the column is missing. Entries are never removed or reordered; a database that
+#: has been migrated forward stays forward-compatible because every change is
+#: additive and nullable or has a default.
+MIGRATIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "users",
+        (
+            ("role", "TEXT NOT NULL DEFAULT 'user'"),
+            ("deleted_at", "TEXT"),
+        ),
+    ),
+    (
+        "contacts",
+        (
+            ("verified_by", "TEXT"),
+            ("verification_requested_at", "TEXT"),
+            ("verification_code_hash", "TEXT"),
+            ("verification_expires_at", "TEXT"),
+            ("verification_attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ("verified_at", "TEXT"),
+        ),
+    ),
+)
 
 
 SCHEMA = """
@@ -36,6 +64,8 @@ CREATE TABLE IF NOT EXISTS users (
     email           TEXT UNIQUE,
     phone           TEXT UNIQUE,
     password_hash   TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'user',   -- user | moderator | admin
+    deleted_at      TEXT,                           -- soft delete; revokes the session immediately
     blood_group     TEXT,
     emergency_notes TEXT,
     home_area       TEXT,
@@ -57,6 +87,12 @@ CREATE TABLE IF NOT EXISTS contacts (
     channels        TEXT NOT NULL DEFAULT '["sms","call"]',   -- JSON array
     is_primary      INTEGER NOT NULL DEFAULT 0,
     verified        INTEGER NOT NULL DEFAULT 0,
+    verified_by     TEXT,                                -- user | provider
+    verified_at     TEXT,
+    verification_requested_at TEXT,
+    verification_code_hash    TEXT,
+    verification_expires_at   TEXT,
+    verification_attempts    INTEGER NOT NULL DEFAULT 0,
     active          INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -305,10 +341,36 @@ def close_connection(_exc: BaseException | None = None) -> None:  # pragma: no c
         _local.conn_key = None
 
 
+def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def apply_migrations(conn: sqlite3.Connection) -> list[str]:
+    """Add any column introduced after the database was first created.
+
+    Returns the list of statements applied, for the boot log. Every migration is
+    additive: a column is either nullable or carries a default, so an existing
+    row never becomes invalid.
+    """
+    applied: list[str] = []
+    for table, columns in MIGRATIONS:
+        present = _existing_columns(conn, table)
+        if not present:
+            continue  # table itself does not exist yet; SCHEMA will create it
+        for name, definition in columns:
+            if name in present:
+                continue
+            statement = f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+            conn.execute(statement)
+            applied.append(statement)
+    return applied
+
+
 def init_db(database_path: str | Path) -> None:
     """Create/upgrade the schema. Idempotent."""
     conn = get_connection(database_path)
     conn.executescript(SCHEMA)
+    apply_migrations(conn)
     row = conn.execute("SELECT value FROM schema_meta WHERE key = 'version'").fetchone()
     if row is None:
         conn.execute(

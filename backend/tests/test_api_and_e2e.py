@@ -162,7 +162,7 @@ def test_capabilities_manifest_is_public_and_honest(client):
 def test_health_counts_and_demo_flag(client):
     body = client.get("/api/health").get_json()
     assert body["status"] == "ok"
-    assert body["version"] == "2.0.0"
+    assert body["version"] == "3.0.0"
     assert "counts" in body
 
 
@@ -201,9 +201,10 @@ def test_demo_script_available_in_demo_mode(authed):
     body = authed.get("/api/demo/script").get_json()
     assert body["demo"] is True
     assert "DEMO MODE" in body["notice"]
-    assert 180 <= body["totalSeconds"] <= 400
+    assert body["fitsTarget"] is True
+    assert 180 <= body["totalSeconds"] <= 240
     ids = [step["id"] for step in body["script"]]
-    assert {"login", "sos", "sharing", "intelligence", "routes"} <= set(ids)
+    assert {"sos", "guardian", "score", "routes", "change"} <= set(ids)
 
 
 # --------------------------------------------------- END-TO-END CRITICAL PATH
@@ -279,10 +280,9 @@ def test_end_to_end_login_dashboard_sos_location_alert_tracking_cancel(authed):
     assert final["resolutionNote"] == "Reached a friend's house"
     assert final["durationMinutes"] is not None
 
-    # The guardian link now reports the incident as stood down.
-    tracked_after = authed.get(f"/api/track/{token}").get_json()
-    assert tracked_after["incident"]["state"] == "RESOLVED"
-    assert tracked_after["incident"]["resolvedAt"]
+    # Standing the emergency down stops the link itself: the guardian console
+    # must not keep streaming a position for the rest of the link's TTL.
+    assert authed.get(f"/api/track/{token}").status_code == 403
 
     # Full timeline retained for the record.
     timeline = [entry["state"] for entry in final["timeline"]]

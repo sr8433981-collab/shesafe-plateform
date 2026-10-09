@@ -129,7 +129,7 @@ def _load_session(app: Flask) -> None:
 
 
 def _register_blueprints(app: Flask) -> None:
-    from .api import auth, contacts, demo, intelligence, journeys, location, meta, reports, sos
+    from .api import auth, contacts, demo, intelligence, journeys, location, meta, privacy, reports, sos
 
     app.register_blueprint(meta.bp)
     app.register_blueprint(auth.bp)
@@ -139,6 +139,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(intelligence.bp)
     app.register_blueprint(journeys.bp)
     app.register_blueprint(reports.bp)
+    app.register_blueprint(privacy.bp)
     app.register_blueprint(demo.bp)
 
 
@@ -191,8 +192,46 @@ def _bootstrap(app: Flask) -> None:
 
         ensure_seed(app.config["DATABASE_PATH"], app.config)
 
+    _start_cleanup_job(app)
+
     @app.teardown_appcontext
     def _close_db(_exc):
         # Flask reuses one thread-local connection; we keep it open for speed and
         # only drop it on interpreter shutdown.
         return None
+
+
+def _start_cleanup_job(app: Flask) -> None:
+    """Run the retention job on a timer.
+
+    Location samples, expired share tokens and the audit log all need to age out
+    on their own; a retention policy that only runs when a human remembers to
+    press a button is not a retention policy. The job is a daemon thread, it is
+    started only when the app is actually serving, and it never touches incident
+    trails or incident records.
+    """
+    import threading
+
+    from . import repo
+
+    interval = int(app.config.get("CLEANUP_INTERVAL_SECONDS") or 0)
+    if interval <= 0 or app.config.get("TESTING"):
+        return
+
+    stop = threading.Event()
+
+    def loop() -> None:  # pragma: no cover - timing-dependent
+        while not stop.wait(interval):
+            try:
+                dbp = app.config["DATABASE_PATH"]
+                repo.purge_expired_share_tokens(dbp)
+                repo.purge_old_locations(dbp, int(app.config["INCIDENT_LOCATION_RETENTION_DAYS"]))
+                repo.trim_audit_log(dbp, int(app.config["AUDIT_RETENTION_DAYS"]))
+                repo.purge_stale_emergency_state(dbp, int(app.config["STALE_INCIDENT_MAX_HOURS"]))
+            except Exception:  # a cleanup failure must never take the app down
+                app.logger.warning("retention cleanup failed", exc_info=False)
+
+    thread = threading.Thread(target=loop, name="shesafe-retention", daemon=True)
+    thread.start()
+    app.extensions["shesafe_cleanup"] = {"stop": stop, "thread": thread}
+    log_event("retention.job_started", interval_seconds=interval)

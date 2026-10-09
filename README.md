@@ -13,8 +13,8 @@
 | **Problem** | In a real emergency, a woman needs to alert someone *and* give them her location — in seconds, without fumbling. |
 | **Why it matters** | SheSafe's core flow is optimised for one thumb and three seconds of panic. |
 | **How it works** | Deterministic SOS lifecycle → anchor GPS fix → contact alerts on their configured channels → expiring live-tracking link → safe stand-down. |
-| **What's unique** | A **Safety Intelligence** layer that scores risk with weighted, auditable rules and shows its own weights, confidence and provenance. |
-| **Why it's credible** | 196 automated tests. Every integration reports `real` / `simulated` / `unavailable` from a server-side capability manifest. **SheSafe never claims to have contacted police.** |
+| **What's unique** | A **Safety Intelligence** layer that scores risk with weighted, auditable rules, publishes a **ledger** that partitions every factor into raising / lowering / unchanged risk, and can show you **why a score moved**: BEFORE → the factor that changed → AFTER, from the same engine run twice. It prints its own confidence even when the confidence is embarrassing, and refuses to name a cause when the data is too thin. |
+| **Why it's credible** | 405 automated tests. Every integration reports `real` / `simulated` / `unavailable` from a server-side capability manifest. **SheSafe never claims to have contacted police** — and does not even claim an emergency is active before the server has written it. |
 
 > **In an emergency, call 112.** SheSafe does not dispatch emergency services. The Call 112 button opens your phone's dialler — *you* place the call.
 
@@ -64,9 +64,9 @@ off, `/api/demo/*` returns 404 — you cannot reach demo mode by accident.
 pip install -r backend/requirements-dev.txt
 npm install                 # only for the frontend contract test (jsdom)
 
-npm run test                # 160 API / security / intelligence tests
-npm run test:frontend       # 36 browser-contract checks (jsdom, real server)
-npm run test:all            # both
+npm run test                # 237 API / security / intelligence / privacy tests
+npm run test:frontend       # 168 browser-contract checks (jsdom, real server)
+npm run test:all            # 405 checks
 ```
 
 ---
@@ -78,11 +78,12 @@ npm run test:all            # both
 │  PWA (vanilla ES modules, no framework, no build step)                    │
 │                                                                          │
 │  index.html ─ app.js ─┬─ core/   api · store · router · location ·        │
-│  track.html ─ track.js┤          mapkit · dom · feedback                 │
-│                       └─ modules/ sos · sharing · intelligence ·          │
-│                                 places · journey · contacts ·            │
-│                                 reports · voice                           │
-│  service worker: app shell only — never caches /api/*                     │
+│  track.html ─ track.js┤          mapkit · dom · ui · feedback             │
+│  offline.html         └─ modules/ dashboard · sos · sharing ·              │
+│                                 intelligence · places · journey ·        │
+│                                 contacts · reports · security · voice    │
+│  design system: css/app.css — tokens → components, dark mode, 12px floor │
+│  service worker: app shell + offline emergency page — never caches /api/* │
 └──────────────────────────────┬───────────────────────────────────────────┘
                                │  fetch + JSON, CSRF double-submit header
                                │  (no token in localStorage, no innerHTML)
@@ -96,7 +97,9 @@ npm run test:all            # both
 │   repo     ── all SQL, owner-scoped, parameterised only                  │
 │   notifications ── provider registry; statuses are sent/simulated/       │
 │                    failed/unavailable/skipped. Never invented.           │
-│   intelligence ─┬─ scoring   weighted, explainable, rule-based          │
+│   timeline   ── ONE event vocabulary: at · type · status · explanation  │
+   intelligence ─┬─ scoring   weighted, rule-based, + a ledger that        │
+                 │            partitions the factors, + before/after      │
 │                 ├─ routing   OSRM road geometry + safety scoring        │
 │                 ├─ places    OpenStreetMap Overpass, real provenance     │
 │                 ├─ classifiers deterministic keyword/heuristic baseline │
@@ -123,11 +126,14 @@ npm run test:all            # both
 ## The SOS lifecycle
 
 ```
-IDLE ──▶ ARMING ──▶ COUNTDOWN ──▶ ACTIVE ──▶ ESCALATING ──▶ RESOLVED
-          │  (10s,    (capture    (notify     (explicit)
-          │  cancel)  GPS +       contacts,             │
-          └──────────▶ CANCELLED   mint link)             └──▶ CANCELLED
+IDLE ──▶ ARMING ──▶ COUNTDOWN ──▶ ACTIVATING ──▶ ACTIVE ──▶ ESCALATING ──▶ RESOLVED
+          │  (10s,    (the server  (notify      (explicit)
+          │  cancel)   writes it)   contacts,              │
+          └──────────▶ CANCELLED    mint link)              └──▶ CANCELLED
 ```
+
+`ACTIVATING` exists so the app never shows *SOS ACTIVE* before the incident
+actually exists. It is the same discipline as never claiming a dispatch.
 
 Guarantees, all enforced server-side and covered by tests:
 
@@ -137,16 +143,21 @@ Guarantees, all enforced server-side and covered by tests:
 * **Idempotent stand-down** — cancelling before activation sends nothing; cancelling after activation is recorded as
   `CANCELLED` with a "stood down" message, so the record never understates what happened.
 * **Auditable** — every transition is appended to `incident_events` with actor and timestamp.
-* **Honest** — there is no police integration, so there is no claim of one.
+* **Honest** — there is no police integration, so there is no claim of one, and
+  there is no *SOS ACTIVE* label until the server has written the incident.
+* **Press and hold, with real alternatives** — the SOS control arms on a 1.2 s
+  hold, on keyboard/assistive activation, or on a labelled one-tap button. All
+  three run the same ten-second cancel window.
 
 ---
 
 ## Safety Intelligence
 
 ```
-Safety Score = w₁·time-of-day + w₂·incident-density + w₃·infrastructure
+Risk Score   = w₁·time-of-day + w₂·incident-density + w₃·infrastructure
              + w₄·community-reports + w₅·route-characteristics + w₆·isolation
              (weights sum to 100; riskScore 0-100, higher = more risk)
+Safety Score = 100 − Risk Score   (0-100, higher = safer)
 ```
 
 | Band | Range |
@@ -234,25 +245,29 @@ Design choices worth calling out:
 │   │   ├── notifications/     provider registry + honest delivery statuses
 │   │   ├── intelligence/      scoring · routing · places · classifiers · llm
 │   │   └── api/               auth · sos · contacts · location · intelligence
-│   │                         journeys · reports · meta · demo
-│   ├── tests/                 160 pytest tests
+│   │                         journeys · reports · privacy · meta · demo
+│   ├── tests/                 192 pytest tests
 │   ├── wsgi.py                entrypoint
 │   ├── server.cjs             deprecated launcher (delegates to Flask)
 │   └── requirements.txt       Flask only
 ├── frontend/
 │   ├── index.html             app shell (semantic, CSP-clean)
-│   ├── track.html             guardian tracking page
-│   ├── css/app.css            design tokens + components
-│   ├── js/core/               api · store · router · location · mapkit · dom · feedback
-│   ├── js/modules/            sos · sharing · intelligence · places · journey
-│   │                         contacts · reports · voice
-│   ├── sw.js                  app-shell-only service worker
-│   ├── manifest.webmanifest   PWA manifest with shortcuts
+│   ├── track.html             guardian console (token-only)
+│   ├── offline.html           emergency numbers, no network needed
+│   ├── css/app.css            one design system: tokens → components
+│   ├── js/core/               api · store · router · location · mapkit · dom
+│   │                         ui (icons, badges, sheets) · feedback
+│   ├── js/modules/            dashboard · sos · sharing · intelligence · places
+│   │                         journey · contacts · reports · security · voice
+│   ├── sw.js                  shell + offline page; never caches /api/*
+│   ├── manifest.webmanifest   PWA manifest with maskable icons and shortcuts
 │   └── icons/
-├── tests/frontend/smoke.mjs   36 browser-contract checks against a live server
+├── tests/frontend/smoke.mjs   134 browser-contract checks against a live server
 └── docs/
     ├── ARCHITECTURE_AUDIT.md  pre-remediation audit (CRITICAL/HIGH/MEDIUM/LOW)
-    └── HACKATHON_READINESS.md readiness report + judge demo script
+    ├── PHASE2_UI_AUDIT.md     UI/UX audit + the acceptance criteria as tests
+    ├── JUDGE_DEMO.md          click-by-click 4-minute walkthrough
+    └── HACKATHON_READINESS.md readiness report, capabilities, risks
 ```
 
 ---
@@ -275,7 +290,8 @@ All responses are `{"ok": true, ...}` or `{"ok": false, "error": {"code", "messa
 | `POST` | `/api/sos/escalate` · `/resolve` · `/cancel` | ✓ | Close the incident |
 | `GET` | `/api/sos/active` · `/incidents` · `/incidents/<id>` | ✓ | Current + historical incidents |
 | `GET` `POST` | `/api/contacts` | ✓ | Emergency contacts (owner-scoped) |
-| `PATCH` `DELETE` | `/api/contacts/<id>` · `/verify` | ✓ | Edit, remove, self-confirm |
+| `PATCH` `DELETE` | `/api/contacts/<id>` · `/verify` | ✓ | Edit, pause, remove, self-confirm |
+| `POST` | `/api/contacts/<id>/verification` · `/verification/confirm` | ✓ | One-time code proving the contact owns the number |
 | `POST` | `/api/location/ping` | ✓ | Authenticated telemetry sample |
 | `GET` | `/api/location/latest` | ✓ | Own last known position |
 | `POST` | `/api/location/share/start` · `/revoke` | ✓ | Mint / revoke expiring links |
@@ -289,7 +305,11 @@ All responses are `{"ok": true, ...}` or `{"ok": false, "error": {"code", "messa
 | `POST` | `/api/journeys/<id>/checkin` · `/cancel` · `/escalate` | ✓ | Journey lifecycle |
 | `GET` `POST` | `/api/checkins` | ✓ | "I'm safe" check-ins |
 | `GET` `POST` | `/api/reports` | ✓ | Community reports |
-| `POST` | `/api/reports/<id>/helpful` · `/moderate` | ✓ | Signals and moderation |
+| `POST` | `/api/reports/<id>/helpful` · `/moderate` | ✓ | Signals and moderation (moderator role) |
+| `GET` | `/api/privacy/retention` | ✓ | Retention policy and current row counts |
+| `POST` | `/api/privacy/export` | ✓ | Portable JSON copy of the account |
+| `POST` | `/api/privacy/cleanup` | ✓ | Run the retention job now |
+| `DELETE` | `/api/account` | ✓ | Delete the account (typed confirmation) |
 | `GET` | `/api/meta/audit` | ✓ | Recent security events (coordinates scrubbed) |
 | `GET` | `/api/demo/status` · `/script` · `POST /reset` | — / ✓ | Demo mode (404 when disabled) |
 
@@ -309,7 +329,7 @@ then the capability manifest reports them honestly.
 ## Testing
 
 ```
-160 pytest tests
+192 pytest tests
 ├── auth         hashing, no name-substring bypass, session forgery, CSRF,
 │                origin guard, cookie flags, mass-assignment, enumeration
 ├── sos          lifecycle, duplicate suppression, notification honesty,
@@ -319,18 +339,28 @@ then the capability manifest reports them honestly.
 ├── contacts     CRUD, channel whitelist, primary uniqueness, IDOR isolation
 ├── intelligence band boundaries, weight sum, protective features, prior values,
 │                unverified down-weighting, explainability, provenance,
-│                no-accuracy-claim assertions
-├── journeys     escalation ladder, grace periods, escalation → SOS
+│                signed deltas that do not move the score, no-accuracy claims
+├── journeys     escalation ladder, grace periods, escalation → SOS,
+│                trusted-contact attachment and cross-account isolation
 ├── reports      moderation states, verification gating, anonymity, votes
+├── phase2       contact verification (4 states, hashed codes, bounded
+│                attempts), moderator RBAC, retention & cleanup, export,
+│                account deletion, guardian payload honesty, additive migrations
 └── api + e2e    rate limiting, error envelope, SQL-injection inertness,
                  size limits, capability manifest, and the mandated
                  LOGIN → DASHBOARD → SOS → LOCATION → ALERT →
                  LIVE TRACKING → CANCEL journey
 
-36 jsdom contract checks
-└── boot, auth guard, sign-in, dashboard, contacts, SOS countdown → activation
-    → honest notification counts → stand-down, history, location consent,
-    safety intelligence explainability, accessibility, CSP cleanliness
+134 jsdom browser-contract checks
+└── boot and the authentication gate, navigation reachability, sign-in,
+    dashboard hierarchy, location consent, safety intelligence (safety hero,
+    signed factors, provenance, "why this score?"), route comparison,
+    journey trusted contact, SOS press-and-hold → countdown → ACTIVATING →
+    active console contents, emergency visible from every view, stand-down
+    confirmation, guardian console + transient-failure recovery + revocation,
+    history, contacts, community safety, capability manifest, accessibility,
+    and the code-level contract: no native dialogs, no innerHTML, no inline
+    styles, no hard-coded hex, one metric(), 12px floor
 ```
 
 ---
@@ -339,8 +369,14 @@ then the capability manifest reports them honestly.
 
 * [`docs/ARCHITECTURE_AUDIT.md`](docs/ARCHITECTURE_AUDIT.md) — the pre-remediation audit: 12 CRITICAL, 14 HIGH,
   17 MEDIUM, 13 LOW findings, with locations and remediation contracts.
-* [`docs/HACKATHON_READINESS.md`](docs/HACKATHON_READINESS.md) — readiness score, judge demo script, real vs
-  simulated inventory, remaining limitations.
+* [`docs/PHASE2_UI_AUDIT.md`](docs/PHASE2_UI_AUDIT.md) — the UI/UX audit that drove this phase: 6 BLOCKER,
+  19 HIGH, 22 MEDIUM, 14 LOW findings, every suspected defect verified at
+  runtime, and the acceptance criteria that are now executable tests.
+* [`docs/JUDGE_DEMO.md`](docs/JUDGE_DEMO.md) — the exact click-by-click 4-minute
+  walkthrough, what to say at each step, and the failure drills for when a
+  public service is down.
+* [`docs/HACKATHON_READINESS.md`](docs/HACKATHON_READINESS.md) — readiness score, real vs
+  simulated inventory, security status, differentiators, remaining risks.
 
 ---
 

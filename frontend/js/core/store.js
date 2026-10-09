@@ -1,7 +1,7 @@
 /**
  * Tiny observable store. Enough state management for a single-page app without
- * pulling in a framework: a plain object, a subscribe list, and immutable-ish
- * updates that re-render only the subscribers that asked for a key.
+ * pulling in a framework: a plain object, a subscribe list, and updates that
+ * re-render only the subscribers that asked for a key.
  */
 
 export function createStore(initial) {
@@ -42,7 +42,7 @@ export function createStore(initial) {
       keySubscribers.get(key).add(fn);
     }
     return () => {
-      for (const key of list) (keySubscribers.get(key) || new Set()).delete(fn);
+      for (const key of list) (keySubscribers.get(key) || []).delete(fn);
     };
   }
 
@@ -57,6 +57,10 @@ export const store = createStore({
   demoMode: false,
   capabilities: null,
 
+  // connectivity
+  online: true,
+  reconnecting: false,
+
   // location
   location: null,
   locationAgeSeconds: null,
@@ -64,6 +68,7 @@ export const store = createStore({
   locationPermission: 'prompt', // prompt | granted | denied | unsupported
   locationError: null,
   sharingActive: false,
+  shares: [],
 
   // emergency
   incident: null,
@@ -71,24 +76,23 @@ export const store = createStore({
   cancelSecondsLeft: 0,
   sirenOn: false,
   voiceListening: false,
+  lastOutcome: null,
 
   // journeys
   journey: null,
   journeyRequiresAction: false,
 
+  // intelligence
+  assessment: null,
+  // The last BEFORE/AFTER comparison. Held so the dashboard can show that safety
+  // moves, without recomputing it on every paint.
+  comparison: null,
+
+  // published emergency numbers, fetched once and rendered from the store so a
+  // dashboard re-render cannot wipe them
+  helplines: [],
+
   // ui
   contacts: [],
-  view: 'home',
-  busy: new Set(),
+  demoStep: 0,
 });
-
-export const actions = {
-  markBusy(key, value = true) {
-    const busy = new Set(store.get().busy);
-    if (value) busy.add(key); else busy.delete(key);
-    store.set({ busy });
-  },
-  isBusy(key) {
-    return store.get().busy.has(key);
-  },
-};

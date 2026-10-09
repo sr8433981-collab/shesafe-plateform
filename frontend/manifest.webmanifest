@@ -1,23 +1,29 @@
 {
   "name": "SheSafe — Personal Safety & Emergency Response",
   "short_name": "SheSafe",
-  "description": "One-tap SOS, live location sharing with expiring links, explainable safety scoring and safe routing.",
+  "description": "One-press SOS with a cancel window, live location sharing with expiring revocable links, explainable safety scoring and safety-aware routing.",
   "start_url": "./index.html",
   "scope": "./",
+  "id": "/shesafe",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "portrait-primary",
-  "background_color": "#f8fafc",
-  "theme_color": "#e11d48",
+  "background_color": "#f6f7fb",
+  "theme_color": "#4f46e5",
   "lang": "en",
-  "categories": ["utilities", "lifestyle", "medical"],
+  "dir": "ltr",
+  "categories": ["utilities", "lifestyle", "medical", "security"],
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Emergency SOS", "short_name": "SOS", "url": "./index.html#/home", "description": "Open the dashboard and trigger SOS" },
-    { "name": "Live location", "short_name": "Live", "url": "./index.html#/sharing", "description": "Start live location sharing" },
-    { "name": "What should I do?", "short_name": "Assist", "url": "./index.html#/assist", "description": "Classify an incident and get guidance" }
+    { "name": "Dashboard and SOS", "short_name": "SOS", "url": "./index.html#/home", "description": "Open the dashboard and raise an emergency" },
+    { "name": "Live location", "short_name": "Live", "url": "./index.html#/sharing", "description": "Start live location sharing with an expiring link" },
+    { "name": "Journey Guard", "short_name": "Journey", "url": "./index.html#/journey", "description": "Start a watched journey" },
+    { "name": "Emergency numbers", "short_name": "112", "url": "./offline.html", "description": "Emergency numbers that work without a connection" }
   ]
 }

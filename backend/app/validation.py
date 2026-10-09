@@ -182,6 +182,35 @@ def int_field(
     return value
 
 
+def float_field(
+    data: dict[str, Any],
+    name: str,
+    *,
+    lo: float | None = None,
+    hi: float | None = None,
+    required: bool = True,
+    default: float | None = None,
+    label: str | None = None,
+) -> float | None:
+    label = label or name.replace("_", " ").capitalize()
+    raw = data.get(name, default)
+    if raw is None or raw == "":
+        if required:
+            raise ValidationError(f"{label} is required.", **{name: "required"})
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValidationError(f"{label} must be a number.", **{name: "invalid"}) from None
+    if math.isnan(value) or math.isinf(value):
+        raise ValidationError(f"{label} must be a real number.", **{name: "invalid"}) from None
+    if lo is not None and value < lo:
+        raise ValidationError(f"{label} must be at least {lo}.", **{name: "too_small"}) from None
+    if hi is not None and value > hi:
+        raise ValidationError(f"{label} must be at most {hi}.", **{name: "too_small"}) from None
+    return value
+
+
 def lat_field(data: dict[str, Any], name: str = "lat", *, required: bool = True) -> float | None:
     return _coord_field(data, name, "Latitude", -90.0, 90.0, required)
 

@@ -23,6 +23,30 @@ from .helpers import db_path, ok, serialize_report
 
 bp = Blueprint("reports", __name__, url_prefix="/api")
 
+#: Roles permitted to change the moderation state of a community report.
+MODERATOR_ROLES = ("moderator", "admin")
+
+
+def is_moderator(user: dict) -> bool:
+    return str(user.get("role") or "user").lower() in MODERATOR_ROLES
+
+
+def moderation_is_open() -> bool:
+    """Is moderation open to any signed-in account?
+
+    Only in Demo Mode (or when an operator explicitly sets
+    ``SHESAFE_OPEN_MODERATION`` outside production). Production is closed
+    unconditionally — there is no configuration that reopens it, because the
+    failure mode is a stranger being able to mark a report as verified fact.
+    """
+    cfg = current_app.config
+    if cfg.get("ENV") == "production":
+        return False
+    explicit = cfg.get("MODERATION_OPEN_TO_ALL_USERS")
+    if explicit is True:
+        return True
+    return bool(cfg.get("DEMO_MODE", False))
+
 CATEGORIES = (
     "stalking",
     "harassment",
@@ -201,9 +225,12 @@ def mark_helpful(report_id: str):
 def moderate(report_id: str):
     """Moderation action.
 
-    In this build moderation is available to any signed-in user, which is
-    explicitly a demo affordance, not a production permission model. The
-    response says so.
+    Permission model
+    ----------------
+    A ``moderator`` (or ``admin``) role is required, and the check is enforced
+    here rather than in the UI. The one exception is Demo Mode, where moderation
+    is opened up so a judge can exercise the flow; that exception is reported in
+    the response so nobody mistakes the demo affordance for the permission model.
     """
     user = require_user()
     dbp = db_path()
@@ -217,6 +244,22 @@ def moderate(report_id: str):
     if repo.get_report(dbp, report_id) is None:
         raise NotFoundError("Report not found.")
 
+    open_to_all = moderation_is_open()
+    if not open_to_all and not is_moderator(user):
+        audit(
+            dbp,
+            action="report.moderate",
+            outcome="denied",
+            actor_id=user["id"],
+            target_type="report",
+            target_id=report_id,
+            detail={"reason": "not_a_moderator", "role": user.get("role", "user")},
+            **audit_kwargs(),
+        )
+        raise AuthorizationError(
+            "Only a moderator can change the state of a community report.", code="moderator_required"
+        )
+
     conf = 0.0
     if confidence is not None:
         try:
@@ -225,6 +268,8 @@ def moderate(report_id: str):
             conf = 0.0
     if target == "VERIFIED" and conf < 0.5:
         raise ValidationError("Verification requires a confidence of at least 0.5 and a moderator note.", confidence="too_low")
+    if target == "VERIFIED" and not note:
+        raise ValidationError("Verification requires a written reason a reader can audit.", note="required")
 
     report = repo.set_report_state(dbp, report_id, target, moderator_note=note, confidence=conf)
     audit(
@@ -232,16 +277,23 @@ def moderate(report_id: str):
         action="report.moderate",
         outcome="success",
         actor_id=user["id"],
+        actor_label=user.get("name"),
         target_type="report",
         target_id=report_id,
-        detail={"state": target, "confidence": conf},
+        detail={"state": target, "confidence": conf, "role": user.get("role", "user")},
         **audit_kwargs(),
     )
     log_event("report.moderated", request_id=request_id(), report_id=report_id, state=target)
     return ok(
         {
             "report": serialize_report(report),
-            "note": "Demo build: any signed-in user can moderate. A production deployment would require a moderator role.",
+            "note": (
+                "Demo Mode: moderation is open to any signed-in account so the flow can be demonstrated. "
+                "A production deployment would require a moderator role."
+                if open_to_all
+                else "Moderated by a role-authorised account."
+            ),
+            "permissionModel": "moderator_role" if not open_to_all else "demo_open",
         }
     )
 

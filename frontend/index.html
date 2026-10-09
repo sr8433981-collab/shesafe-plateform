@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#e11d48">
-  <meta name="description" content="SheSafe is a personal safety and emergency-response platform: one-tap SOS, live location sharing with expiring links, explainable safety scoring and safe routing.">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="description" content="SheSafe is a personal safety and emergency-response product: one-press SOS with a cancel window, live location sharing with expiring links, explainable safety scoring and safety-aware routing.">
   <title>SheSafe · Personal safety &amp; emergency response</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,386 +20,298 @@
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
 
-  <div class="shell">
+  <div class="shell" id="shell">
+
     <div id="demo-ribbon-host"></div>
 
-    <header class="app-header">
-      <div class="wrap app-header__inner">
+    <header class="appbar">
+      <div class="wrap appbar__inner">
         <a class="brand" href="#/home">
-          <span class="brand__mark" aria-hidden="true">🛡️</span>
+          <span class="brand__mark" id="brand-mark" aria-hidden="true"></span>
           <span>
             <span class="brand__name">SheSafe</span>
             <span class="brand__tag">Personal safety</span>
           </span>
         </a>
-        <div class="header-spacer"></div>
-        <div id="header-status" class="row" style="gap: 8px"></div>
-        <button id="btn-account" class="icon-button" type="button" aria-label="Account and settings" aria-haspopup="dialog">👤</button>
+        <div class="appbar__spacer"></div>
+        <div id="header-status" class="row row--tight"></div>
+        <a class="icon-button" href="tel:112" aria-label="Call 112, the national emergency number">112</a>
+        <button id="btn-account" class="icon-button" type="button" aria-label="Account and settings" aria-haspopup="dialog"></button>
       </div>
     </header>
 
-    <main id="main" class="app-main">
+    <div id="emergency-bar-host"></div>
+    <div id="connectivity-host"></div>
+
+    <nav class="nav-rail" id="nav-rail" aria-label="Sections"></nav>
+
+    <main id="main" class="app-main" tabindex="-1">
       <div class="wrap">
-        <div id="server-down" class="stack" hidden style="margin-bottom: 20px"></div>
+        <div id="server-down" class="stack" hidden></div>
+        <div id="boot-state" class="stack"></div>
 
-        <!-- ============================================================= -->
-        <!-- Landing / authentication                                        -->
-        <!-- ============================================================= -->
-        <section id="view-auth" class="view" data-view="view-auth" hidden aria-labelledby="auth-heading">
-          <div class="auth-layout">
-            <div class="hero-copy">
-              <p class="badge badge--danger">Emergency response · Personal safety</p>
-              <h1 id="auth-heading" style="margin-top: 12px">One tap. Real help. Nothing faked.</h1>
-              <p class="lead">
-                SheSafe turns your phone into an emergency beacon: a deterministic SOS, live location
-                your contacts can actually follow, and safety intelligence that shows its working.
-              </p>
-              <ul class="hero-points">
-                <li><span class="hero-points__icon" aria-hidden="true">🆘</span><span><strong>Deterministic SOS.</strong> A real incident record with a reference you can read out, every state change logged.</span></li>
-                <li><span class="hero-points__icon" aria-hidden="true">📍</span><span><strong>Live location with expiring links.</strong> 256-bit tokens, revocable in one tap, no user id in the URL.</span></li>
-                <li><span class="hero-points__icon" aria-hidden="true">📊</span><span><strong>Explainable safety score.</strong> Weighted rules, visible contributions, honest confidence.</span></li>
-                <li><span class="hero-points__icon" aria-hidden="true">🔐</span><span><strong>Privacy-first by default.</strong> Location is off until you switch it on, throttled, and expiring.</span></li>
-              </ul>
-              <div id="capability-strip" class="row" style="gap: 6px; margin-top: 20px"></div>
-            </div>
-
-            <div class="auth-card">
-              <div class="tabs" role="tablist" aria-label="Account">
-                <button class="tabs__tab" id="tab-login" role="tab" aria-selected="true" aria-controls="form-login" type="button">Sign in</button>
-                <button class="tabs__tab" id="tab-signup" role="tab" aria-selected="false" aria-controls="form-signup" type="button">Create account</button>
-              </div>
-
-              <form id="form-login" role="tabpanel" aria-labelledby="tab-login">
-                <div class="stack">
-                  <div class="field">
-                    <label for="login-identifier">Email or mobile number</label>
-                    <input class="input" id="login-identifier" name="identifier" autocomplete="username" required maxlength="254">
-                  </div>
-                  <div class="field">
-                    <label for="login-password">Password</label>
-                    <div class="row" style="gap: 8px; flex-wrap: nowrap">
-                      <input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="200">
-                      <button class="icon-button" id="toggle-password" type="button" aria-label="Show password" aria-pressed="false">👁</button>
-                    </div>
-                  </div>
-                  <button class="btn btn--brand btn--block btn--lg" type="submit">Sign in</button>
-                  <div id="demo-login-box"></div>
-                </div>
-              </form>
-
-              <form id="form-signup" role="tabpanel" aria-labelledby="tab-signup" hidden>
-                <div class="stack">
-                  <div class="field"><label for="signup-name">Full name</label>
-                    <input class="input" id="signup-name" name="name" required maxlength="80" autocomplete="name"></div>
-                  <div class="field"><label for="signup-email">Email</label>
-                    <input class="input" id="signup-email" name="email" type="email" required maxlength="254" autocomplete="email"></div>
-                  <div class="field"><label for="signup-mobile">Mobile number</label>
-                    <input class="input" id="signup-mobile" name="phone" type="tel" required maxlength="24" autocomplete="tel" placeholder="+91 98765 43210"></div>
-                  <div class="field"><label for="signup-password">Password</label>
-                    <input class="input" id="signup-password" name="password" type="password" required maxlength="200" autocomplete="new-password" aria-describedby="signup-password-hint">
-                    <span class="field__hint" id="signup-password-hint">At least 8 characters, including letters and numbers.</span></div>
-                  <div class="field"><label for="signup-contact-name">Trusted contact (optional)</label>
-                    <input class="input" id="signup-contact-name" maxlength="80" placeholder="Name"></div>
-                  <div class="field"><label for="signup-contact-phone">Their mobile number</label>
-                    <input class="input" id="signup-contact-phone" type="tel" maxlength="24" placeholder="+91 98765 43210"></div>
-                  <button class="btn btn--brand btn--block btn--lg" type="submit">Create account</button>
-                </div>
-              </form>
-
-              <div class="notice notice--info" style="margin-top: 18px">
-                <span class="notice__icon" aria-hidden="true">🚨</span>
-                <div><strong>In an emergency right now?</strong>
-                  <a href="tel:112">Call 112</a> · <a href="tel:181">181</a> (women helpline) · <a href="tel:100">100</a> (police)
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ============================================================= -->
-        <!-- Dashboard                                                       -->
-        <!-- ============================================================= -->
-        <section id="view-home" class="view" data-view="view-home" hidden aria-labelledby="home-heading">
-          <div class="page-head">
-            <h1 id="home-heading" tabindex="-1">Hello, <span id="home-first-name">there</span></h1>
-            <p id="home-subtitle">Your emergency controls, all in one place.</p>
-          </div>
-
-          <div id="emergency-banner" class="stack" style="margin-bottom: 16px"></div>
-
-          <div class="sos-hero">
-            <div class="stack stack--tight" style="text-align: center">
-              <h2 style="font-size: var(--step-1)">Emergency SOS</h2>
-              <p class="tiny">You get a short window to cancel, then SheSafe records the incident, captures your position and alerts your contacts using their configured channels.</p>
-            </div>
-            <button id="btn-sos" class="sos-button" type="button">
-              <span>
-                <span class="sos-button__label">SOS</span>
-                <span class="sos-button__sub">Tap once.</span>
-              </span>
-            </button>
-            <div class="row" style="justify-content: center">
-              <a class="call-112" href="tel:112" style="flex: 1; max-width: 340px">🚨 Call 112</a>
-            </div>
-            <p class="tiny" style="text-align: center">
-              SheSafe does not contact police or ambulance for you. The Call 112 button opens your phone's dialler — the call is placed by you.
+        <!-- ============================================================ -->
+        <!-- Authentication — deliberately NOT a router view. A signed-out  -->
+        <!-- visitor must never be able to reach a private view by hash.    -->
+        <!-- ============================================================ -->
+        <section id="view-auth" class="auth" aria-labelledby="auth-heading" hidden>
+          <div>
+            <p class="page-head__eyebrow">Personal safety · Emergency response</p>
+            <h1 id="auth-heading">One press. Real help. Nothing faked.</h1>
+            <p class="auth__lead">
+              SheSafe records an emergency, shares your position with people you trust, and shows
+              you which parts of it are real, which are simulated, and which are simply unavailable.
             </p>
-            <div class="row" style="justify-content: center; gap: 8px">
-              <button id="btn-voice-sos" class="btn btn--ghost" type="button">🎤 Voice SOS</button>
-              <button id="btn-siren-toggle" class="btn btn--quiet" type="button" aria-pressed="false">🔇 Siren off</button>
+            <ul class="auth__points" id="auth-points"></ul>
+            <div id="capability-strip" class="row row--tight"></div>
+          </div>
+
+          <div class="auth-card">
+            <div class="tabs" role="tablist" aria-label="Account">
+              <button class="tabs__tab" id="tab-login" role="tab" aria-selected="true" aria-controls="form-login" type="button">Sign in</button>
+              <button class="tabs__tab" id="tab-signup" role="tab" aria-selected="false" aria-controls="form-signup" type="button">Create account</button>
             </div>
-          </div>
 
-          <div class="grid grid--2" style="margin-top: 20px">
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">Trusted contacts</h3>
-                  <p class="card__hint">Who SheSafe tries to alert.</p></div>
-                <span id="contacts-count" class="badge badge--muted">0</span>
+            <form id="form-login" role="tabpanel" aria-labelledby="tab-login">
+              <div class="stack">
+                <div class="field">
+                  <label for="login-identifier">Email or mobile number</label>
+                  <input class="input" id="login-identifier" name="identifier" autocomplete="username" required maxlength="254">
+                </div>
+                <div class="field">
+                  <label for="login-password">Password</label>
+                  <div class="row row--tight row--nowrap">
+                    <input class="input grow" id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="200">
+                    <button class="icon-button" id="toggle-password" type="button" aria-label="Show password" aria-pressed="false"></button>
+                  </div>
+                </div>
+                <button class="btn btn--primary btn--block btn--lg" type="submit">Sign in</button>
+                <div id="demo-login-box"></div>
               </div>
-              <div id="contacts-list"></div>
-              <button class="btn btn--ghost btn--block" type="button" data-open-modal="add-contact-modal">Manage contacts</button>
-            </article>
+            </form>
 
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">Live location</h3>
-                  <p class="card__hint">Off until you switch it on.</p></div>
-                <span id="sharing-badge" class="badge badge--muted">Off</span>
+            <form id="form-signup" role="tabpanel" aria-labelledby="tab-signup" hidden>
+              <div class="stack">
+                <div class="field"><label for="signup-name">Full name</label>
+                  <input class="input" id="signup-name" name="name" required maxlength="80" autocomplete="name"></div>
+                <div class="field"><label for="signup-email">Email</label>
+                  <input class="input" id="signup-email" name="email" type="email" required maxlength="254" autocomplete="email"></div>
+                <div class="field"><label for="signup-mobile">Mobile number</label>
+                  <input class="input" id="signup-mobile" name="phone" type="tel" required maxlength="24" autocomplete="tel" placeholder="+91 98765 43210"></div>
+                <div class="field"><label for="signup-password">Password</label>
+                  <input class="input" id="signup-password" name="password" type="password" required minlength="8" maxlength="200" autocomplete="new-password" aria-describedby="signup-password-hint">
+                  <span class="field__hint" id="signup-password-hint">At least 8 characters, including letters and numbers.</span></div>
+                <div class="field"><span class="field__label" id="signup-contact-label">First trusted contact (optional)</span>
+                  <label class="sr-only" for="signup-contact-name">Contact name</label>
+                  <input class="input" id="signup-contact-name" maxlength="80" placeholder="Name" aria-describedby="signup-contact-label">
+                  <label class="sr-only" for="signup-contact-phone">Contact mobile number</label>
+                  <input class="input" id="signup-contact-phone" type="tel" maxlength="24" placeholder="Their mobile number" aria-describedby="signup-contact-label"></div>
+                <button class="btn btn--primary btn--block btn--lg" type="submit">Create account</button>
+                <p class="small">Location stays off until you switch it on. SheSafe never records GPS on this page load.</p>
               </div>
-              <div id="location-summary"></div>
-              <div class="row" style="gap: 8px">
-                <button id="btn-location-toggle" class="btn btn--brand" type="button" style="flex: 1">Enable location</button>
-                <button class="btn btn--quiet" type="button" data-route-link="#/sharing">Details</button>
-              </div>
-            </article>
+            </form>
 
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">Journey guard</h3>
-                  <p class="card__hint">Check that you arrived.</p></div>
-                <span id="journey-badge" class="badge badge--muted">Idle</span>
-              </div>
-              <div id="journey-mini"></div>
-              <button class="btn btn--ghost btn--block" type="button" data-route-link="#/journey">Open journey guard</button>
-            </article>
-
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">Quick actions</h3>
-                  <p class="card__hint">The rest of the toolkit.</p></div>
-              </div>
-              <div class="stack stack--tight">
-                <a class="btn btn--quiet btn--block" href="#/intelligence">📊 Safety intelligence</a>
-                <a class="btn btn--quiet btn--block" href="#/route">🧭 Safe routes</a>
-                <a class="btn btn--quiet btn--block" href="#/places">📍 Safe places nearby</a>
-                <a class="btn btn--quiet btn--block" href="#/reports">📣 Community safety</a>
-                <button class="btn btn--quiet btn--block" type="button" data-open-modal="report-modal">📝 Report an incident</button>
-                <a class="btn btn--quiet btn--block" href="#/history">🗂️ Incident history</a>
-              </div>
-            </article>
-          </div>
-
-          <div class="grid grid--2" style="margin-top: 20px">
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">Emergency helplines</h3>
-                  <p class="card__hint">Publicly published numbers. Calling is your action.</p></div>
-              </div>
-              <div id="helpline-list"></div>
-            </article>
-            <article class="card">
-              <div class="card__head">
-                <div><h3 class="card__title">What this build can really do</h3>
-                  <p class="card__hint">Read from the server's capability manifest.</p></div>
-              </div>
-              <div id="capability-list"></div>
-            </article>
+            <div id="auth-emergency" class="notice notice--danger card--tight"></div>
           </div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Live location sharing                                            -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Dashboard                                                     -->
+        <!-- ============================================================ -->
+        <section id="view-home" class="view" data-view="view-home" hidden aria-labelledby="home-heading">
+          <!-- The greeting is above the emergency block only when there is no
+               emergency: during one, the console is the first thing painted. -->
+          <div class="page-head" id="home-greeting">
+            <p class="page-head__eyebrow" id="home-eyebrow">Dashboard</p>
+            <h1 id="home-heading" tabindex="-1">Hello, <span id="home-first-name">there</span></h1>
+          </div>
+
+          <!-- 1. Emergency: countdown or active console, or the SOS dock.
+                  Always the first block, always the biggest control. -->
+          <div id="home-emergency" class="stack"></div>
+
+          <!-- 2. Current safety status — the five-second read -->
+          <div id="home-safety" class="stack"></div>
+
+          <!-- 3-7. Journey Guard, live location, trusted contacts, safe places,
+                  safety intelligence. In that order, because that is the order
+                  a person needs them in. -->
+          <div class="stack stack--loose" id="home-detail"></div>
+
+          <!-- History, community, advisory, privacy, and the judge walkthrough -->
+          <div id="home-secondary" class="stack"></div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Live location                                                 -->
+        <!-- ============================================================ -->
         <section id="view-sharing" class="view" data-view="view-sharing" hidden aria-labelledby="sharing-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="sharing-back-icon"></span>Dashboard</a>
           <div class="page-head">
+            <p class="page-head__eyebrow">Sharing</p>
             <h1 id="sharing-heading" tabindex="-1">Live location</h1>
-            <p>Share a link that expires and can be revoked. Nothing is shared until you start it.</p>
+            <p>Create a link that expires on its own and that you can revoke in one tap. Nothing is shared until you start it.</p>
           </div>
 
           <div class="grid grid--2">
             <div class="stack">
-              <article class="card">
+              <article class="card" id="sharing-status-card">
                 <div class="card__head">
-                  <div><h3 class="card__title">Status</h3><p class="card__hint">LIVE, accuracy, last update.</p></div>
-                  <span id="sharing-status-badge" class="badge badge--muted">Not sharing</span>
+                  <div><h2 class="card__title">Sharing status</h2><p class="card__hint">Live or not, GPS accuracy, and the age of the last fix.</p></div>
+                  <span id="sharing-status-badge" class="badge badge--neutral">Not sharing</span>
                 </div>
                 <div id="location-telemetry"></div>
-                <div class="stack stack--tight" style="margin-top: 14px">
-                  <button id="btn-start-share" class="btn btn--brand btn--block" type="button">Start live sharing</button>
-                  <button id="btn-stop-share" class="btn btn--ghost btn--block" type="button" disabled>Stop sharing &amp; revoke links</button>
-                </div>
+                <div class="stack stack--tight" id="sharing-controls"></div>
               </article>
 
               <article class="card">
-                <div class="card__head"><div><h3 class="card__title">Share links</h3>
-                  <p class="card__hint">Every link has its own expiry.</p></div></div>
+                <div class="card__head"><div><h2 class="card__title">Share links</h2><p class="card__hint">Each link has its own expiry and its own token.</p></div></div>
                 <div id="shares-list"></div>
               </article>
 
               <article class="card">
-                <div class="card__head"><div><h3 class="card__title">Send it yourself</h3>
-                  <p class="card__hint">Opens your messaging app. You press send — SheSafe cannot.</p></div></div>
-                <div id="share-actions" class="row" style="gap: 8px"></div>
-                <p class="tiny" style="margin-top: 10px">
-                  Web browsers cannot send SMS on your behalf. These buttons hand a prepared message to your phone, where you confirm and send it.
-                </p>
+                <div class="card__head"><div><h2 class="card__title">Send it yourself</h2><p class="card__hint">Opens your messaging app. You press send — SheSafe cannot.</p></div></div>
+                <div id="share-actions" class="btn-row"></div>
+                <p class="small">Browsers cannot send SMS on your behalf. These hand a prepared message to your phone, where you confirm and send it.</p>
               </article>
             </div>
 
             <div class="stack">
               <div class="map-shell map-shell--tall">
-                <div id="sharing-map" style="height: 100%"></div>
+                <div id="sharing-map"></div>
                 <div class="map-overlay"><div class="map-chip" id="sharing-map-caption">Map appears once location is enabled.</div></div>
               </div>
               <article class="card">
-                <div class="card__head"><div><h3 class="card__title">Privacy</h3></div></div>
-                <ul class="stack stack--tight" style="list-style: none; padding: 0">
-                  <li class="tiny">• Links use 256-bit random tokens; only a SHA-256 hash is stored, so a database leak cannot be replayed.</li>
-                  <li class="tiny">• Links expire automatically and can be revoked instantly.</li>
-                  <li class="tiny">• Your phone number is masked for the person following the link.</li>
-                  <li class="tiny">• Movement is only recorded as an incident trail while an SOS is open.</li>
-                  <li class="tiny">• GPS streaming stops when you close the tab or revoke sharing.</li>
-                </ul>
+                <div class="card__head"><div><h2 class="card__title">Privacy</h2></div></div>
+                <ul class="stack stack--tight" id="sharing-privacy"></ul>
+              </article>
+              <article class="card">
+                <div class="card__head"><div><h2 class="card__title">Emergency numbers</h2><p class="card__hint">Publicly published national helplines. Calling is your action, on your phone.</p></div></div>
+                <div id="sharing-helplines"></div>
               </article>
             </div>
           </div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Safety intelligence                                              -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Safety intelligence                                           -->
+        <!-- ============================================================ -->
         <section id="view-intelligence" class="view" data-view="view-intelligence" hidden aria-labelledby="intelligence-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="intel-back-icon"></span>Dashboard</a>
           <div class="page-head">
+            <p class="page-head__eyebrow">Understand the risk</p>
             <h1 id="intelligence-heading" tabindex="-1">Safety intelligence</h1>
-            <p>An explainable risk score for right where you are. Every point is auditable below.</p>
+            <p>A rule-based estimate for where you are, right now. Every point is auditable below. This is not a trained model and no accuracy figure is claimed.</p>
           </div>
           <div id="assessment-panel" class="stack"></div>
-          <article class="card" style="margin-top: 16px">
-            <div class="card__head"><div><h3 class="card__title">Engine</h3></div></div>
-            <div id="engine-info"></div>
-          </article>
+          <div id="engine-info" class="stack"></div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Safe route                                                       -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Safety-aware routing                                          -->
+        <!-- ============================================================ -->
         <section id="view-route" class="view" data-view="view-route" hidden aria-labelledby="route-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="route-back-icon"></span>Dashboard</a>
           <div class="page-head">
-            <h1 id="route-heading" tabindex="-1">Safety navigation</h1>
-            <p>Real road routes, scored for exposure. "Safest" means lower modelled risk here and now — never a guarantee.</p>
+            <p class="page-head__eyebrow">Choose a safer path</p>
+            <h1 id="route-heading" tabindex="-1">Safety-aware routes</h1>
+            <p>Real road routes, scored for exposure at nine points along the corridor. "Safest" means lower modelled risk here and now — never a guarantee.</p>
           </div>
 
           <article class="card">
             <form id="route-form">
               <div class="stack">
-                <div class="field"><label for="route-from">From (latitude, longitude)</label>
-                  <input class="input mono" id="route-from" value="28.63280, 77.21970" required inputmode="decimal"></div>
-                <div class="field"><label for="route-to">To (latitude, longitude)</label>
-                  <input class="input mono" id="route-to" value="28.65010, 77.24120" required inputmode="decimal"></div>
+                <div class="grid grid--2">
+                  <div class="field"><label for="route-from">From — latitude, longitude</label>
+                    <input class="input mono" id="route-from" required inputmode="decimal" autocomplete="off" placeholder="28.63280, 77.21970"></div>
+                  <div class="field"><label for="route-to">To — latitude, longitude</label>
+                    <input class="input mono" id="route-to" required inputmode="decimal" autocomplete="off" placeholder="28.65010, 77.24120"></div>
+                </div>
                 <div class="field"><label for="route-mode">Travel mode</label>
                   <select class="select" id="route-mode">
                     <option value="walk">Walking</option>
                     <option value="cycle">Cycling</option>
                     <option value="drive">Driving</option>
                   </select></div>
-                <div class="row" style="gap: 8px">
-                  <button class="btn btn--brand" type="submit" style="flex: 1">Find routes</button>
+                <div class="btn-row">
+                  <button class="btn btn--primary" type="submit">Find routes</button>
                   <button class="btn btn--quiet" type="button" id="route-use-current">Use my position</button>
                 </div>
+                <p class="field__error" id="route-error" role="alert" hidden></p>
               </div>
             </form>
           </article>
 
-          <div class="grid grid--2" style="margin-top: 20px">
-            <div class="stack" id="route-results">
-              <p class="tiny">Enter two points and press Find routes.</p>
-            </div>
+          <div class="grid grid--2" id="route-layout">
+            <div class="stack" id="route-results"></div>
             <div class="map-shell map-shell--tall">
-              <div id="route-map" style="height: 100%"></div>
+              <div id="route-map"></div>
               <div class="map-overlay"><div class="map-chip" id="route-map-caption">Routes appear here.</div></div>
             </div>
           </div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Safe places                                                      -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Safe places                                                   -->
+        <!-- ============================================================ -->
         <section id="view-places" class="view" data-view="view-places" hidden aria-labelledby="places-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="places-back-icon"></span>Dashboard</a>
           <div class="page-head">
+            <p class="page-head__eyebrow">Where help is</p>
             <h1 id="places-heading" tabindex="-1">Safe places nearby</h1>
             <p>Police, hospitals, pharmacies, women's support centres, shelters and emergency services from OpenStreetMap. Distances are computed from your real position.</p>
           </div>
 
-          <div class="row" style="margin-bottom: 16px">
-            <button class="btn btn--brand" type="button" id="btn-refresh-places">Refresh</button>
-            <a class="btn btn--quiet" href="https://www.google.com/maps/search/hospital+near+me" target="_blank" rel="noopener noreferrer">Search Google Maps</a>
-          </div>
+          <div class="btn-row" id="places-actions"></div>
 
-          <div class="grid grid--2">
+          <div class="grid grid--2" id="places-layout">
             <div id="places-list" class="stack"></div>
             <div class="map-shell map-shell--tall">
-              <div id="places-map" style="height: 100%"></div>
+              <div id="places-map"></div>
               <div class="map-overlay"><div class="map-chip" id="places-map-caption">Map needs a position.</div></div>
             </div>
           </div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Journey guard                                                    -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Journey guard                                                 -->
+        <!-- ============================================================ -->
         <section id="view-journey" class="view" data-view="view-journey" hidden aria-labelledby="journey-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="journey-back-icon"></span>Dashboard</a>
           <div class="page-head">
-            <h1 id="journey-heading" tabindex="-1">Journey guard</h1>
-            <p>We ask if you arrived. If you do not answer, we escalate — but only when this page is open. Browsers cannot reliably wake a closed tab, and we will not pretend otherwise.</p>
+            <p class="page-head__eyebrow">Protect the journey</p>
+            <h1 id="journey-heading" tabindex="-1">Journey Guard</h1>
+            <p>Tell us where you are going and when you expect to arrive. If you do not check in, we escalate. Browsers cannot reliably wake a closed tab, and we will not pretend otherwise.</p>
           </div>
-          <div class="grid grid--2">
+          <div class="grid grid--2" id="journey-layout">
             <div id="journey-panel" class="stack"></div>
-            <article class="card">
-              <div class="card__head"><div><h3 class="card__title">Recent check-ins</h3></div></div>
-              <div id="journey-history"></div>
-            </article>
+            <div class="stack" id="journey-side"></div>
           </div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Community safety                                                 -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Community safety                                              -->
+        <!-- ============================================================ -->
         <section id="view-reports" class="view" data-view="view-reports" hidden aria-labelledby="reports-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="reports-back-icon"></span>Dashboard</a>
           <div class="page-head">
-            <h1 id="reports-heading" tabindex="-1">Community safety</h1>
-            <p>User-submitted reports. Always labelled by moderation state — a community report is a lead, not a fact.</p>
+            <p class="page-head__eyebrow">Community safety</p>
+            <h1 id="reports-heading" tabindex="-1">Community reports</h1>
+            <p>User submissions, always labelled by moderation state. A community report is a lead, not a fact.</p>
           </div>
-          <div class="row" style="margin-bottom: 16px">
-            <button class="btn btn--brand" type="button" data-open-modal="report-modal">Report an incident</button>
-          </div>
+          <div id="reports-actions" class="stack"></div>
           <div id="reports-feed" class="stack"></div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Incident assist (AI)                                            -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Incident assist (advisory only)                              -->
+        <!-- ============================================================ -->
         <section id="view-assist" class="view" data-view="view-assist" hidden aria-labelledby="assist-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="assist-back-icon"></span>Dashboard</a>
           <div class="page-head">
+            <p class="page-head__eyebrow">Advisory only</p>
             <h1 id="assist-heading" tabindex="-1">What should I do?</h1>
-            <p>Describe what is happening. SheSafe classifies it and suggests next steps. This is guidance only — it never raises an alert for you.</p>
+            <p>Describe what is happening and SheSafe classifies it with a transparent keyword rule set, then suggests next steps. It never raises an alert for you.</p>
           </div>
           <article class="card">
             <div class="stack">
@@ -407,67 +319,44 @@
                 <label for="assist-input">Describe the situation</label>
                 <textarea class="textarea" id="assist-input" maxlength="2000" placeholder="A man has been following me since the bus stop."></textarea>
               </div>
-              <button class="btn btn--brand btn--block" type="button" id="btn-assist">Analyse</button>
-              <div class="row" style="gap: 8px">
-                <a class="btn btn--danger" href="tel:112" style="flex: 1">🚨 Call 112</a>
-                <button class="btn btn--ghost" type="button" style="flex: 1" data-goto-sos="1">Open SOS</button>
+              <div class="btn-row">
+                <button class="btn btn--primary btn--block" type="button" id="btn-assist">Classify this</button>
+                <a class="btn btn--danger btn--block" href="tel:112">Call 112</a>
               </div>
             </div>
           </article>
-          <div id="assist-result" class="stack" style="margin-top: 16px"></div>
+          <div id="assist-result" class="stack"></div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Incident history                                                -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Incident history                                              -->
+        <!-- ============================================================ -->
         <section id="view-history" class="view" data-view="view-history" hidden aria-labelledby="history-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="history-back-icon"></span>Dashboard</a>
           <div class="page-head">
+            <p class="page-head__eyebrow">The record</p>
             <h1 id="history-heading" tabindex="-1">Incident history</h1>
-            <p>Every SOS you have raised, with its full state timeline and what was actually sent.</p>
+            <p>Every incident you have raised, with its full state timeline and what was actually attempted.</p>
           </div>
           <div id="history-list" class="stack"></div>
         </section>
 
-        <!-- ============================================================= -->
-        <!-- Privacy & security                                              -->
-        <!-- ============================================================= -->
+        <!-- ============================================================ -->
+        <!-- Privacy & capability manifest                                 -->
+        <!-- ============================================================ -->
         <section id="view-security" class="view" data-view="view-security" hidden aria-labelledby="security-heading">
-          <a class="breadcrumb" href="#/home">← Dashboard</a>
+          <a class="backlink" href="#/home" data-backlink><span id="security-back-icon"></span>Dashboard</a>
           <div class="page-head">
-            <h1 id="security-heading" tabindex="-1">Privacy &amp; security</h1>
-            <p>What SheSafe protects, what it deliberately does not collect, and what it cannot do.</p>
+            <p class="page-head__eyebrow">Trust, verifiable</p>
+            <h1 id="security-heading" tabindex="-1">Privacy &amp; capability</h1>
+            <p>What SheSafe protects, what it deliberately does not collect, and what it cannot do. The capability list is read live from the server.</p>
           </div>
-          <div class="grid grid--2">
-            <article class="card">
-              <h3 class="card__title">Protections in place</h3>
-              <ul class="stack stack--tight" style="list-style: none; padding: 0; margin-top: 12px">
-                <li class="tiny">• PBKDF2-SHA256 password hashing, constant-time verification.</li>
-                <li class="tiny">• Signed, HttpOnly, SameSite session cookies; CSRF double-submit on every write.</li>
-                <li class="tiny">• Every data query is scoped to the authenticated owner.</li>
-                <li class="tiny">• Share links: 256-bit tokens, hashed at rest, expiring, revocable.</li>
-                <li class="tiny">• Rate limiting on auth, SOS, location and writes.</li>
-                <li class="tiny">• Strict CSP, no sniffing, no framing, no referrer leakage.</li>
-                <li class="tiny">• Structured audit log with coordinates coarsened before they are written.</li>
-              </ul>
-            </article>
-            <article class="card">
-              <h3 class="card__title">Deliberate limitations</h3>
-              <ul class="stack stack--tight" style="list-style: none; padding: 0; margin-top: 12px">
-                <li class="tiny">• No government, police or ambulance integration. We will never claim otherwise.</li>
-                <li class="tiny">• No background monitoring: GPS and journey timers need the page open.</li>
-                <li class="tiny">• No street-lighting, CCTV or occupancy data, so the score cannot use them.</li>
-                <li class="tiny">• No trained ML model, so no accuracy figure is quoted anywhere.</li>
-                <li class="tiny">• Web push requires a service worker and a configured provider.</li>
-                <li class="tiny">• Moderation in this build is open to any signed-in user — not production-grade RBAC.</li>
-              </ul>
-            </article>
-          </div>
-          <article class="card" style="margin-top: 16px">
-            <div class="card__head"><div><h3 class="card__title">Recent security events</h3>
-              <p class="card__hint">Server-side audit trail.</p></div></div>
+          <div id="security-panels" class="grid grid--2"></div>
+          <article class="card" id="audit-card">
+            <div class="card__head"><div><h2 class="card__title">Recent security events</h2><p class="card__hint">Server-side audit trail, privacy-scrubbed.</p></div></div>
             <div id="audit-list"></div>
           </article>
+          <div id="security-actions" class="stack"></div>
         </section>
 
       </div>
@@ -477,59 +366,68 @@
       <div class="wrap stack stack--tight">
         <p><strong>SheSafe</strong> — personal safety and emergency response. In a real emergency, call <a href="tel:112">112</a>.</p>
         <p id="footer-disclaimer">This product does not contact emergency services. Safety scores are rule-based estimates, not measured outcomes.</p>
-        <p class="tiny">Map data © OpenStreetMap contributors. Routing by OSRM. Places data is crowd-maintained and is not an official safety endorsement.</p>
+        <p class="small">Map data © OpenStreetMap contributors. Routing by OSRM. Places data is crowd-maintained and is not an official safety endorsement.</p>
       </div>
     </footer>
 
-    <nav class="tabbar" aria-label="Primary">
-      <a class="tabbar__link" href="#/home" data-route="home"><span class="tabbar__icon" aria-hidden="true">🏠</span>Home</a>
-      <a class="tabbar__link" href="#/sharing" data-route="sharing"><span class="tabbar__icon" aria-hidden="true">📍</span>Live</a>
-      <a class="tabbar__link" href="#/intelligence" data-route="intelligence"><span class="tabbar__icon" aria-hidden="true">📊</span>Safety</a>
-      <a class="tabbar__link" href="#/journey" data-route="journey"><span class="tabbar__icon" aria-hidden="true">⏱️</span>Journey</a>
-      <a class="tabbar__link" href="#/places" data-route="places"><span class="tabbar__icon" aria-hidden="true">🆘</span>Places</a>
-    </nav>
+    <nav class="tabbar" id="tabbar" aria-label="Primary"></nav>
   </div>
 
   <!-- ================================================================ -->
-  <!-- Modals                                                             -->
+  <!-- Sheets — native <dialog>, focus trapped, Escape closes            -->
   <!-- ================================================================ -->
-  <dialog id="add-contact-modal" class="modal" aria-labelledby="add-contact-title">
-    <form method="dialog" class="modal__panel">
-      <div class="modal__head">
-        <h2 id="add-contact-title">Add a trusted contact</h2>
-        <button class="modal__close" type="submit" aria-label="Close">×</button>
+  <dialog id="sheet-contact" class="sheet" aria-labelledby="sheet-contact-title">
+    <div class="sheet__panel">
+      <div class="sheet__grabber" aria-hidden="true"></div>
+      <div class="sheet__head">
+        <h2 id="sheet-contact-title">Trusted contacts</h2>
+        <button class="sheet__close" type="button" data-close-modal="sheet-contact" aria-label="Close"></button>
       </div>
-      <div id="add-contact-body"></div>
-    </form>
+      <div id="sheet-contact-body"></div>
+    </div>
   </dialog>
 
-  <dialog id="report-modal" class="modal" aria-labelledby="report-title">
-    <div class="modal__panel">
-      <div class="modal__head">
-        <h2 id="report-title">Report an incident</h2>
-        <button class="modal__close" type="button" data-close-modal="report-modal" aria-label="Close">×</button>
+  <dialog id="sheet-report" class="sheet" aria-labelledby="sheet-report-title">
+    <div class="sheet__panel">
+      <div class="sheet__grabber" aria-hidden="true"></div>
+      <div class="sheet__head">
+        <h2 id="sheet-report-title">Report an incident</h2>
+        <button class="sheet__close" type="button" data-close-modal="sheet-report" aria-label="Close"></button>
       </div>
       <div id="report-form-body"></div>
     </div>
   </dialog>
 
-  <dialog id="account-modal" class="modal" aria-labelledby="account-title">
-    <div class="modal__panel">
-      <div class="modal__head">
-        <h2 id="account-title">Account &amp; settings</h2>
-        <button class="modal__close" type="button" data-close-modal="account-modal" aria-label="Close">×</button>
+  <dialog id="sheet-account" class="sheet" aria-labelledby="sheet-account-title">
+    <div class="sheet__panel">
+      <div class="sheet__grabber" aria-hidden="true"></div>
+      <div class="sheet__head">
+        <h2 id="sheet-account-title">Account &amp; settings</h2>
+        <button class="sheet__close" type="button" data-close-modal="sheet-account" aria-label="Close"></button>
       </div>
       <div id="account-body"></div>
     </div>
   </dialog>
 
-  <dialog id="voice-modal" class="modal" aria-labelledby="voice-title">
-    <div class="modal__panel">
-      <div class="modal__head">
-        <h2 id="voice-title">Voice SOS</h2>
-        <button class="modal__close" type="button" data-close-modal="voice-modal" aria-label="Close">×</button>
+  <dialog id="sheet-voice" class="sheet" aria-labelledby="sheet-voice-title">
+    <div class="sheet__panel">
+      <div class="sheet__grabber" aria-hidden="true"></div>
+      <div class="sheet__head">
+        <h2 id="sheet-voice-title">Voice SOS</h2>
+        <button class="sheet__close" type="button" data-close-modal="sheet-voice" aria-label="Close"></button>
       </div>
       <div id="voice-body" class="stack"></div>
+    </div>
+  </dialog>
+
+  <dialog id="sheet-contacts" class="sheet" aria-labelledby="sheet-contacts-title">
+    <div class="sheet__panel">
+      <div class="sheet__grabber" aria-hidden="true"></div>
+      <div class="sheet__head">
+        <h2 id="sheet-contacts-title">Manage trusted contacts</h2>
+        <button class="sheet__close" type="button" data-close-modal="sheet-contacts" aria-label="Close"></button>
+      </div>
+      <div id="contacts-body"></div>
     </div>
   </dialog>
 

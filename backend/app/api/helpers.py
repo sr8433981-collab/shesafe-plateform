@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from flask import current_app, g, jsonify, request
 
-from .. import repo
+from .. import repo, timeline
 from ..logging_utils import iso
 from ..security import client_identity, ip_hash
 
@@ -62,6 +62,7 @@ def public_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def public_contact(contact: dict[str, Any]) -> dict[str, Any]:
+    verified_by = contact.get("verified_by")
     return {
         "id": contact["id"],
         "name": contact["name"],
@@ -70,6 +71,10 @@ def public_contact(contact: dict[str, Any]) -> dict[str, Any]:
         "channels": contact.get("channels") or [],
         "isPrimary": bool(contact.get("is_primary")),
         "verified": bool(contact.get("verified")),
+        "verifiedBy": verified_by,
+        "verifiedAt": contact.get("verified_at"),
+        "verificationRequestedAt": contact.get("verification_requested_at"),
+        "verificationPending": bool(contact.get("verification_code_hash")),
         "active": bool(contact.get("active")),
         "createdAt": contact.get("created_at"),
     }
@@ -152,6 +157,7 @@ def serialize_incident(incident: dict[str, Any], *, include_events: bool = True,
         "resolutionNote": incident.get("resolution_note"),
         "durationMinutes": duration_minutes,
         "location": public_location(anchor) if anchor else None,
+        # The lifecycle in order: one entry per stored state change.
         "timeline": [
             {
                 "state": e["to_state"],
@@ -162,6 +168,9 @@ def serialize_incident(incident: dict[str, Any], *, include_events: bool = True,
             }
             for e in events
         ],
+        # The same record in the shared timeline vocabulary, enriched with the
+        # location and notification events a person actually needs to read it.
+        "safetyTimeline": safety_timeline(dbp, incident, events),
         "notifications": [
             {
                 "channel": n["channel"],
@@ -216,7 +225,30 @@ def _notification_statement(delivered, simulated, unavailable, failed) -> str:
     )
 
 
-def serialize_journey(journey: dict[str, Any]) -> dict[str, Any]:
+def safety_timeline(dbp, incident: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The incident record in the shared timeline vocabulary.
+
+    Every entry carries a timestamp, an event type, a status and a sentence a
+    person can read. Built from stored rows only — the location anchor and the
+    notification attempts that really happened, never the ones that might.
+    """
+    anchor = repo.incident_anchor(dbp, incident["id"])
+    notifications = repo.list_notifications(dbp, incident["id"])
+    shares = [
+        token for token in repo.list_share_tokens(dbp, incident["user_id"]) if token.get("incident_id") == incident["id"]
+    ]
+    return timeline.merge(
+        [timeline.event(e["created_at"], e["to_state"], detail=e["detail"], actor=e["actor"]) for e in events],
+        (timeline.sharing_events(shares[0]) if shares else []),
+        [timeline.location_event(anchor, label="Anchor position captured")] if anchor else [],
+        [timeline.notification_event(n) for n in notifications],
+    )
+
+
+def serialize_journey(journey: dict[str, Any], *, dbp=None) -> dict[str, Any]:
+    events = []
+    if dbp is not None:
+        events = serialize_journey_timeline(dbp, journey)
     return {
         "id": journey["id"],
         "origin": journey.get("origin_label"),
@@ -231,6 +263,62 @@ def serialize_journey(journey: dict[str, Any]) -> dict[str, Any]:
         "escalatedAt": journey.get("escalated_at"),
         "escalatedIncidentId": journey.get("escalated_incident_id"),
         "endedAt": journey.get("ended_at"),
+        "timeline": events,
+    }
+
+
+def serialize_journey_timeline(dbp, journey: dict[str, Any]) -> list[dict[str, Any]]:
+    """A Journey Guard record in the shared timeline shape.
+
+    Built from ``journey_events`` (the stored state changes) plus the check-ins
+    the user actually made. A state that never occurred is not present, so the
+    ladder on screen is the ladder that ran.
+
+    Ordering note: a state change and the check-in written alongside it share the
+    same one-second timestamp, so the row order cannot be recovered from the
+    clock alone. Each check-in is therefore attached to the state it belongs to,
+    which is both exact for the two kinds that exist and stable for any new kind
+    (which lands after the last state change rather than interleaving wrongly).
+    """
+    events = repo.list_journey_events(dbp, journey["id"])
+    check_ins = [
+        check_in
+        for check_in in reversed(repo.list_check_ins(dbp, journey["user_id"], limit=50))
+        if check_in.get("journey_id") == journey["id"]
+    ]
+
+    entries: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for event in events:
+        state = event["to_state"]
+        entries.append(
+            timeline.event(event["created_at"], state, table=timeline.JOURNEY_LIFECYCLE, detail=event["detail"])
+        )
+        for check_in in check_ins:
+            message = check_in.get("message") or ""
+            kind = "ON_JOURNEY" if message.startswith("Journey started") else "ARRIVED"
+            if kind == state:
+                entries.append(_check_in_event(check_in, journey, kind))
+                used.add(str(check_in.get("id")))
+    # A check-in that could not be attached to a stored state still happened.
+    for check_in in check_ins:
+        if str(check_in.get("id")) not in used:
+            entries.append(_check_in_event(check_in, journey, "ARRIVED"))
+    return timeline.merge(entries)
+
+
+def _check_in_event(check_in: dict[str, Any], journey: dict[str, Any], kind: str) -> dict[str, Any]:
+    message = check_in.get("message") or ""
+    opened = kind == "ON_JOURNEY"
+    return {
+        "at": check_in.get("created_at"),
+        "state": "CHECK_IN",
+        "type": "journey" if opened else "checkin",
+        "status": "closed" if journey["state"] == "ARRIVED" else "active",
+        "label": "Journey record opened" if opened else "Check-in recorded",
+        "explanation": message or "A check-in was recorded against this journey.",
+        "actor": "user",
+        "detail": check_in.get("place_label"),
     }
 
 

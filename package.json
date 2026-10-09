@@ -1,8 +1,8 @@
 {
   "name": "shesafe",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "SheSafe - personal safety and emergency-response platform (Flask API + vanilla ES-module PWA)",
+  "description": "SheSafe - personal safety and emergency-response product (Flask API + vanilla ES-module PWA)",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -35,6 +35,7 @@
   "comments": {
     "dependencies": "Intentionally empty. The runtime is Python 3.10+ with Flask only; `npm install` is not required to run SheSafe. See backend/requirements.txt.",
     "devDependencies": "jsdom powers tests/frontend/smoke.mjs, which runs the real client module graph against a live server to verify the browser contract. Development only.",
-    "type": "So Node treats tests/frontend/*.mjs as ES modules. The browser frontend uses native modules and is unaffected. backend/server.cjs is CommonJS by extension."
+    "type": "So Node treats tests/frontend/*.mjs as ES modules. The browser frontend uses native modules and is unaffected. backend/server.cjs is CommonJS by extension.",
+    "tests": "npm run test = pytest suite; npm run test:frontend = jsdom browser-contract test that boots the real client module graph against a live server."
   }
 }

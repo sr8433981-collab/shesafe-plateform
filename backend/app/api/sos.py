@@ -28,7 +28,7 @@ from flask import Blueprint, current_app, request
 from .. import repo, validation
 from ..errors import ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
 from ..logging_utils import audit, human_reference, iso, log_event, utcnow
-from ..notifications import build_emergency_message, build_safe_message
+from ..notifications import DeliveryResult, build_emergency_message, build_safe_message
 from ..security import login_required, new_token, hash_token, rate_limit
 from ..validation import require_json
 from .helpers import (
@@ -299,6 +299,8 @@ def resolve():
     follow_up = _notify_safe(dbp, user, incident)
     incident = repo.get_incident(dbp, user["id"], incident["id"])  # type: ignore[assignment]
 
+    revoked = _revoke_incident_share_links(dbp, user, incident)
+
     audit(
         dbp,
         action="sos.resolve",
@@ -310,7 +312,42 @@ def resolve():
         **audit_meta(),
     )
     log_event("sos.resolved", request_id=request_id(), user_id=user["id"], reference=incident["reference"])
-    return ok({"incident": serialize_incident(incident, dbp=dbp), "notificationSummary": follow_up["summary"]})
+    return ok(
+        {
+            "incident": serialize_incident(incident, dbp=dbp),
+            "notificationSummary": follow_up["summary"],
+            "shareLinksRevoked": revoked,
+        }
+    )
+
+
+def _revoke_incident_share_links(dbp, user: dict[str, Any], incident: dict[str, Any]) -> int:
+    """Revoke every live share link minted for this incident.
+
+    Standing an emergency down is the user saying *stop*. The link minted by
+    ``activate`` used to stay live for its full TTL (an hour by default), so
+    after resolve/cancel the guardian console still answered 200 with
+    ``linkState: "live"`` and ``sharing: true`` - the location kept streaming to
+    anyone holding the link. Links the user created separately are left alone;
+    only the ones scoped to this incident are closed.
+    """
+    revoked = 0
+    for token in repo.list_share_tokens(dbp, user["id"]):
+        if token.get("incident_id") != incident["id"]:
+            continue
+        if token.get("revoked_at"):
+            continue
+        if repo.revoke_share_token(dbp, user["id"], token["id"]):
+            revoked += 1
+    if revoked:
+        log_event(
+            "location.share_revoked_on_stand_down",
+            request_id=request_id(),
+            user_id=user["id"],
+            reference=incident.get("reference"),
+            revoked=revoked,
+        )
+    return revoked
 
 
 @bp.post("/cancel")
@@ -345,6 +382,7 @@ def cancel():
         "counts": {"sent": 0, "simulated": 0, "unavailable": 0, "failed": 0, "skipped": 0},
     }
     incident = repo.get_incident(dbp, user["id"], incident["id"])  # type: ignore[assignment]
+    revoked = _revoke_incident_share_links(dbp, user, incident)
 
     audit(
         dbp,
@@ -362,6 +400,7 @@ def cancel():
             "incident": serialize_incident(incident, dbp=dbp),
             "notificationSummary": follow_up["summary"],
             "contactsWereNotified": was_contacted,
+            "shareLinksRevoked": revoked,
         }
     )
 
@@ -497,10 +536,10 @@ def _notify_contacts(
     for contact in contacts:
         for channel in contact.get("channels") or ["sms"]:
             provider = registry.get(channel)
-            if not provider.is_configured() and provider.name == "none":
-                result = provider.send(contact["phone"], body, {})
-            else:
-                result = provider.send(contact["phone"], body, {"incident_id": incident["id"]})
+            context = {} if (not provider.is_configured() and provider.name == "none") else {
+                "incident_id": incident["id"]
+            }
+            result = _attempt(provider, contact, channel, body, context)
             counts[result.status] = counts.get(result.status, 0) + 1
             repo.record_notification(
                 dbp,
@@ -527,6 +566,36 @@ def _notify_contacts(
     return {"counts": counts, "summary": summary, "contacts": len(contacts)}
 
 
+def _attempt(provider, contact: dict[str, Any], channel: str, body: str, context: dict[str, Any]):
+    """Send one message, converting a raising provider into a recorded failure.
+
+    A provider that raises must never abort the surrounding emergency action.
+    In ``_notify_contacts`` that meant the request 500'd *after* the incident was
+    already ACTIVE and the link minted, leaving an open emergency that had
+    alerted nobody, no ``notification_attempts`` row, and a retry that was then
+    suppressed as a duplicate. The same guard keeps a failing provider from
+    turning a successful stand-down into a 500.
+    """
+    try:
+        return provider.send(contact["phone"], body, context)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
+        log_event(
+            "sos.notify_failed",
+            request_id=request_id(),
+            channel=channel,
+            provider=provider.name,
+            contact_id=contact.get("id"),
+            error=f"{type(exc).__name__}: {exc}"[:180],
+        )
+        return DeliveryResult(
+            channel=channel,
+            provider=provider.name,
+            destination=contact.get("phone") or "",
+            status="failed",
+            detail=f"Provider raised {type(exc).__name__} before reporting a result.",
+        )
+
+
 def _notify_safe(
     dbp, user: dict[str, Any], incident: dict[str, Any], *, reason: str | None = None, cancelled: bool = False
 ) -> dict[str, Any]:
@@ -543,7 +612,7 @@ def _notify_safe(
     for contact in contacts:
         for channel in contact.get("channels") or ["sms"]:
             provider = registry.get(channel)
-            result = provider.send(contact["phone"], body, {"incident_id": incident["id"]})
+            result = _attempt(provider, contact, channel, body, {"incident_id": incident["id"]})
             counts[result.status] = counts.get(result.status, 0) + 1
             repo.record_notification(
                 dbp,

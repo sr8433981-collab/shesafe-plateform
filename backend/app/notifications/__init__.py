@@ -382,3 +382,19 @@ def build_check_in_message(*, user_name: str, place_label: str | None, journey_i
     destination = place_label or "their current location"
     suffix = f" (journey {journey_id})" if journey_id else ""
     return f"SheSafe: {user_name} has checked in as safe at {destination}{suffix}."
+
+
+def build_verification_message(*, contact_name: str, user_name: str, code: str, ttl_minutes: int) -> str:
+    """One-time code that proves a trusted contact owns the number on file.
+
+    Sent to the *contact*, never to the account holder, and it says nothing about
+    an emergency — a false alarm here would train people to ignore real ones.
+    """
+    return (
+        f"SheSafe contact check\n\n"
+        f"{user_name} listed this number as a trusted contact ({contact_name}).\n"
+        f"If that is you, read this code back to them: {code}\n\n"
+        f"The code expires in {ttl_minutes} minutes and is single use.\n"
+        "This is not an emergency alert and no emergency services were contacted. "
+        "SheSafe never calls 112 — if you are in danger, call 112 yourself."
+    )
