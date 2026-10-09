@@ -7,6 +7,7 @@
 #   pip install -r backend/requirements.txt
 
 Flask>=3.0,<4.0
+gunicorn>=22.0,<24.0
 
 # --- development / test only (not needed at runtime) -----------------------
 # pytest>=8.0      (see backend/requirements-dev.txt)
