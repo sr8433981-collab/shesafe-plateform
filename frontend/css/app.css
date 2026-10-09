@@ -1378,7 +1378,7 @@ hr.rule { border: none; border-top: 1px solid var(--border); }
 
 
 
-/* SheSafe dashboard readability fix */
+/* SheSafe dashboard readability fix
 body {
   background: #f4f6fb;
   color: #101828;
@@ -1427,4 +1427,4 @@ textarea,
 select {
   color: #101828;
   background: #ffffff;
-}
+} */
