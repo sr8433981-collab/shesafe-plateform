@@ -324,6 +324,11 @@ async function main() {
     Array.from(document.querySelectorAll('.tabbar__link')).every((link) => link.hidden));
   check('no uncaught script errors during boot', errors.length === 0, errors.join(' | '));
   check('demo mode ribbon is shown', await waitFor(() => Boolean(document.querySelector('.demo-ribbon'))));
+  const demoRibbonIcon = document.querySelector('.demo-ribbon svg');
+  check('demo mode ribbon uses a compact information icon',
+    Boolean(demoRibbonIcon)
+    && window.getComputedStyle(demoRibbonIcon).width === '16px'
+    && window.getComputedStyle(demoRibbonIcon).height === '16px');
   check('the sign-in screen shows an always-reachable 112 action',
     /112/.test(document.querySelector('.appbar').textContent));
 
@@ -342,6 +347,27 @@ async function main() {
 
   /* --- sign in --------------------------------------------------------- */
   section('sign in');
+  document.getElementById('tab-signup').click();
+  document.getElementById('signup-name').value = 'Auth Test';
+  document.getElementById('signup-email').value = 'demo@shesafe.local';
+  document.getElementById('signup-mobile').value = '+919999000001';
+  document.getElementById('signup-password').value = 'SignupTest123';
+  document.getElementById('form-signup').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  const signupConflict = await waitFor(() => !document.getElementById('signup-feedback').hidden);
+  check('a duplicate account stays visible as an actionable signup error',
+    signupConflict
+    && /already exists/i.test(text(document, '#signup-feedback'))
+    && Boolean(document.querySelector('#signup-feedback button')));
+  document.querySelector('#signup-feedback button').click();
+  check('the signup conflict offers sign-in with the existing identifier',
+    document.getElementById('tab-login').getAttribute('aria-selected') === 'true'
+    && document.getElementById('login-identifier').value === 'demo@shesafe.local');
+  document.getElementById('login-password').value = 'incorrect-password';
+  document.getElementById('form-login').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  const loginFailure = await waitFor(() => !document.getElementById('login-feedback').hidden);
+  check('a failed sign-in displays a persistent inline error',
+    loginFailure && /incorrect email\/mobile or password/i.test(text(document, '#login-feedback')));
+
   document.getElementById('login-identifier').value = 'demo@shesafe.local';
   document.getElementById('login-password').value = process.env.SHESAFE_DEMO_PASSWORD || 'shesafe-demo';
   document.getElementById('form-login').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -362,6 +388,9 @@ async function main() {
   check('the emergency numbers list is rendered', emergencyNumbers);
   const dashboardReady = await waitFor(() => Boolean(document.getElementById('btn-sos')), { timeout: 25000 });
   check('the dashboard finished rendering', dashboardReady);
+  check('the dashboard explains why a safety score is missing instead of showing endless loading',
+    !document.querySelector('#home-safety .skeleton')
+    && /Enable location/.test(text(document, '#home-safety')));
 
   const session = await cookies.fetch('/api/auth/session').then((r) => r.json()).catch(() => ({}));
   check('the client authenticated against the real API', session.authenticated === true, JSON.stringify(session).slice(0, 120));

@@ -449,6 +449,7 @@ a { color: var(--brand-700); text-underline-offset: 3px; }
   letter-spacing: 0.08em; text-transform: uppercase;
   padding: 5px var(--sp-3);
 }
+.demo-ribbon svg { width: 16px; height: 16px; flex: none; }
 
 /* ------------------------------------------------------------------ views */
 
@@ -912,6 +913,10 @@ a { color: var(--brand-700); text-underline-offset: 3px; }
 .emergency .badge { background: rgba(255,255,255,0.16); color: #fff; border-color: rgba(255,255,255,0.34); }
 .emergency .btn--quiet { --btn-bg: rgba(255,255,255,0.12); --btn-fg: #fff; --btn-bd: rgba(255,255,255,0.34); }
 .emergency .call-112 { background: #fff; color: var(--danger-800); }
+@media (prefers-color-scheme: dark) {
+  .emergency[data-slot="active"] { background: var(--danger-50); }
+  .emergency[data-slot="active"] .call-112 { color: #9f1239; }
+}
 
 .emergency-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

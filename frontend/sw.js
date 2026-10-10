@@ -13,7 +13,7 @@
  *   otherwise would be a lie about capability.
  */
 
-const VERSION = 'shesafe-v3';
+const VERSION = 'shesafe-v6';
 const SHELL_CACHE = `${VERSION}-shell`;
 
 const SHELL_ASSETS = [

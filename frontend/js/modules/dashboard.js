@@ -20,7 +20,7 @@ import { api } from '../core/api.js';
 import { $, el, mount, relativeTime } from '../core/dom.js';
 import {
   BAND_TONE, DELIVERY_TONE, card, confirmSheet, dataList, dataRow, disclosure,
-  icon, metric, metricGrid, notice, pill, safetyTimeline, skeletonList,
+  icon, metric, metricGrid, notice, pill, safetyTimeline,
 } from '../core/ui.js';
 import { locationManager } from '../core/location.js';
 import { store } from '../core/store.js';
@@ -288,9 +288,22 @@ async function standDown() {
 function safetyStatusPanel() {
   const assessment = store.get().assessment;
   if (!assessment) {
+    const location = store.get().location;
     return card('Current safety status', {
       hint: 'An explainable, rule-based estimate for where you are right now.',
-      body: [assessmentSkeleton()],
+      body: [
+        notice(
+          'caution',
+          'Safety score unavailable',
+          location
+            ? 'SheSafe could not load a score for your current position. Try the Safety Intelligence screen again.'
+            : 'Enable location to score your current area. SOS, contacts and other features are still available without location.',
+        ),
+        el('div', { class: 'btn-row' },
+          location
+            ? el('a', { class: 'btn btn--quiet btn--block', href: '#/intelligence' }, icon('gauge'), 'Retry safety score')
+            : el('button', { class: 'btn btn--primary btn--block', type: 'button', onclick: () => void toggleLocation() }, icon('target'), 'Enable location')),
+      ],
     });
   }
 
@@ -357,13 +370,6 @@ function coverageLabel(assessment) {
     label: COVERAGE_WORDS[label] || label,
     note: label === 'GOOD' ? '' : (coverage.note || 'Limited safety data available.'),
   };
-}
-
-function assessmentSkeleton() {
-  return el('div', { class: 'row score-row' },
-    el('div', { class: 'skeleton skeleton--circle' }),
-    el('div', { class: 'stack stack--tight grow' },
-      skeletonList(3)));
 }
 
 /* ------------------------------------------------------------- 3. journey */
@@ -465,7 +471,7 @@ function contactsStrip() {
             ]),
             el('ul', { class: 'stack stack--tight' }, ...active.slice(0, 3).map((contact) =>
               el('li', { class: 'row row--tight' },
-                icon('users'),
+                icon('users', { width: 18 }),
                 el('span', { class: 'grow' }, contact.name),
                 pill(contact.verified ? 'Confirmed' : 'Unconfirmed', contact.verified ? 'safe' : 'neutral')))),
             active.length > 3 ? el('p', { class: 'small' }, `and ${active.length - 3} more`) : null),

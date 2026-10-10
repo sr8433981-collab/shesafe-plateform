@@ -403,6 +403,9 @@ function renderEmergencyState() {
 function wireAuth() {
   $('#tab-login').addEventListener('click', () => switchAuthTab('login'));
   $('#tab-signup').addEventListener('click', () => switchAuthTab('signup'));
+  for (const form of [$('#form-login'), $('#form-signup')]) {
+    form.addEventListener('input', () => clearAuthFeedback(form));
+  }
 
   $('#toggle-password').addEventListener('click', (event) => {
     const input = $('#login-password');
@@ -414,7 +417,9 @@ function wireAuth() {
 
   $('#form-login').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = event.target.querySelector('button[type="submit"]');
+    const form = event.currentTarget;
+    clearAuthFeedback(form);
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       const response = await api.login($('#login-identifier').value.trim(), $('#login-password').value);
@@ -422,7 +427,7 @@ function wireAuth() {
       toast(`Welcome back, ${firstName(response.user.name)}.`, 'success');
       await enterApp();
     } catch (error) {
-      toast(error.message, 'error', { timeout: 9000 });
+      showAuthFeedback(form, 'Sign-in failed', error.message);
     } finally {
       button.disabled = false;
     }
@@ -430,7 +435,9 @@ function wireAuth() {
 
   $('#form-signup').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = event.target.querySelector('button[type="submit"]');
+    const form = event.currentTarget;
+    clearAuthFeedback(form);
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       const response = await api.signup({
@@ -446,11 +453,44 @@ function wireAuth() {
       toast('Account created. Add a second contact so someone else can reach you too.', 'success', { timeout: 9000 });
       await enterApp();
     } catch (error) {
-      toast(error.message, 'error', { timeout: 9000 });
+      const conflict = error.code === 'email_taken' || error.code === 'phone_taken';
+      const status = showAuthFeedback(
+        form,
+        conflict ? 'Account already exists' : 'Could not create account',
+        error.message,
+      );
+      if (conflict) {
+        const identifier = error.code === 'email_taken' ? $('#signup-email').value.trim() : $('#signup-mobile').value.trim();
+        status.appendChild(el('button', {
+          class: 'btn btn--quiet btn--block',
+          type: 'button',
+          onclick: () => {
+            switchAuthTab('login');
+            $('#login-identifier').value = identifier;
+            $('#login-password').focus();
+          },
+        }, 'Go to sign in'));
+      }
     } finally {
       button.disabled = false;
     }
   });
+}
+
+function clearAuthFeedback(form) {
+  const target = document.getElementById(`${form.id.slice(5)}-feedback`);
+  if (!target) return;
+  mount(target);
+  target.hidden = true;
+}
+
+function showAuthFeedback(form, title, message) {
+  const target = document.getElementById(`${form.id.slice(5)}-feedback`);
+  if (!target) return null;
+  mount(target, notice('danger', title, message));
+  target.hidden = false;
+  target.scrollIntoView({ block: 'nearest' });
+  return target;
 }
 
 function switchAuthTab(which) {
@@ -519,7 +559,7 @@ function renderDemoRibbon() {
   if (!host) return;
   store.on('demoMode', renderDemoRibbon);
   mount(host, store.get().demoMode
-    ? el('div', { class: 'demo-ribbon', role: 'note' }, icon('alert'), 'Demo mode · simulated surfaces are labelled SIMULATED')
+    ? el('div', { class: 'demo-ribbon', role: 'note' }, icon('info'), 'Demo mode · simulated surfaces are labelled SIMULATED')
     : null);
 }
 
