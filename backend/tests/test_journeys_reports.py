@@ -51,8 +51,32 @@ def test_journey_states_escalate_on_read(authed, app):
     assert active["requiresAction"] is True
 
     _backdate_journey(app, journey["id"], 30)  # past the grace period
-    warned = authed.get("/api/journeys/active").get_json()
-    assert warned["journey"]["state"] == "WARNING"
+    escalated = authed.get("/api/journeys/active").get_json()
+    assert escalated["journey"]["state"] == "EMERGENCY"
+    incident = authed.get("/api/sos/active").get_json()["incident"]
+    assert incident["state"] == "ACTIVE"
+    assert incident["triggerSource"] == "journey"
+
+
+def test_journey_timeout_automatically_attempts_trusted_contact_alerts(authed, app):
+    authed.post("/api/contacts", {"name": "Sister", "phone": "+919000009111", "channels": ["sms"]})
+    journey = authed.post(
+        "/api/journeys", {"origin": "A", "destination": "B", "expectedMinutes": 5}
+    ).get_json()["journey"]
+    _backdate_journey(app, journey["id"], 30)
+
+    active = authed.get("/api/journeys/active").get_json()
+    assert active["journey"]["state"] == "EMERGENCY"
+
+    from backend.app import repo
+
+    incident = repo.find_active_incident(app.config["DATABASE_PATH"], authed.user["id"])
+    attempts = repo.list_notifications(app.config["DATABASE_PATH"], incident["id"])
+    assert len(attempts) == 1
+    assert attempts[0]["status"] == "simulated"
+
+    authed.get("/api/journeys/active")
+    assert len(repo.list_notifications(app.config["DATABASE_PATH"], incident["id"])) == 1
 
 
 def test_journey_checkin_closes_it(authed, app):

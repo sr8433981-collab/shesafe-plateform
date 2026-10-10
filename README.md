@@ -202,7 +202,7 @@ Design choices worth calling out:
 ### What SheSafe deliberately does **not** do
 
 * No police, ambulance or government integration — and no pretence of one.
-* No background monitoring. GPS and journey timers need the page open; we say so on-screen.
+* No background monitoring. GPS and journey timers need the page open; after the expected arrival and a 3-minute grace period, Journey Guard automatically activates SOS and attempts trusted-contact alerts through configured providers.
 * No fabricated ML accuracy, no fake statistics, no invented businesses.
 * No claim that an SMS was sent unless a provider confirmed it.
 

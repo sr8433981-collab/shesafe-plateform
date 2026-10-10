@@ -29,6 +29,13 @@ def test_login_success_and_failure_are_indistinguishable_on_failure(authed):
     assert wrong.get_json()["error"]["message"] == unknown.get_json()["error"]["message"]
 
 
+def test_login_accepts_local_or_international_phone_format(api):
+    api.signup(name="Phone Login", email="phone.login@example.test", phone="9000004321")
+
+    assert api.login("9000004321", "Str0ngPass123").status_code == 200
+    assert api.login("+91 90000-04321", "Str0ngPass123").status_code == 200
+
+
 def test_no_name_substring_auth_bypass(api):
     """The old build logged anyone in whose identifier contained 'sweta'."""
     api.signup(name="Sweta Sharma", email="sweta@example.test", phone="+919000005555")

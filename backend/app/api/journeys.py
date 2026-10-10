@@ -62,7 +62,7 @@ def active():
     journey = repo.active_journey(dbp, user["id"])
     if journey is None:
         return ok({"journey": None, "disclaimer": MONITORING_DISCLAIMER})
-    journey = _advance(dbp, journey, escalate=False)
+    journey = _advance(dbp, user, journey)
     return ok(
         {
             "journey": serialize_journey(journey, dbp=dbp),
@@ -188,8 +188,6 @@ def cancel(journey_id: str):
 @login_required
 def escalate(journey_id: str):
     """Explicitly escalate a journey to a real SOS incident."""
-    from . import sos as sos_api
-
     user = require_user()
     dbp = db_path()
     journey = repo.get_journey(dbp, user["id"], journey_id)
@@ -198,40 +196,7 @@ def escalate(journey_id: str):
     if journey["state"] == "EMERGENCY":
         raise ConflictError("This journey has already escalated.", code="already_escalated")
 
-    existing = repo.find_active_incident(dbp, user["id"])
-    if existing:
-        incident_id = existing["id"]
-    else:
-        incident = repo.create_incident(
-            dbp, user["id"], reference=human_reference("SS"), trigger_source="journey", state="COUNTDOWN"
-        )
-        incident_id = incident["id"]
-        sample = repo.latest_location(dbp, user["id"])
-        if sample:
-            repo.record_incident_location(dbp, incident_id, sample["lat"], sample["lng"], sample.get("accuracy_m"), "gps")
-        repo.transition_incident(
-            dbp,
-            incident_id,
-            "ACTIVE",
-            from_state="COUNTDOWN",
-            detail=f"escalated from Journey Guard {journey_id}",
-            actor="journey",
-            activated_at=iso(),
-        )
-        share = sos_api._mint_share_token(dbp, user, repo.get_incident(dbp, user["id"], incident_id), label="Journey Guard escalation")
-        sos_api._notify_contacts(
-            dbp, user, repo.get_incident(dbp, user["id"], incident_id), share_url=share["url"]
-        )
-
-    repo.transition_journey(
-        dbp,
-        journey_id,
-        "EMERGENCY",
-        from_state=journey["state"],
-        detail="user requested escalation",
-        escalated_at=iso(),
-        escalated_incident_id=incident_id,
-    )
+    journey, incident = _escalate_journey(dbp, user, journey, detail="user requested escalation")
     audit(
         dbp,
         action="journey.escalate",
@@ -239,15 +204,14 @@ def escalate(journey_id: str):
         actor_id=user["id"],
         target_type="journey",
         target_id=journey_id,
-        detail={"incidentId": incident_id},
+        detail={"incidentId": incident["id"]},
         **audit_kwargs(),
     )
-    incident = repo.get_incident(dbp, user["id"], incident_id)
     return ok(
         {
-            "journey": serialize_journey(repo.get_journey(dbp, user["id"], journey_id), dbp=dbp),
-            "incidentId": incident_id,
-            "reference": incident["reference"] if incident else None,
+            "journey": serialize_journey(journey, dbp=dbp),
+            "incidentId": incident["id"],
+            "reference": incident["reference"],
             "note": "SOS is now active. Use Call 112 to reach emergency services.",
         }
     )
@@ -256,7 +220,7 @@ def escalate(journey_id: str):
 # --------------------------------------------------------------- internals
 
 
-def _advance(dbp, journey: dict, *, escalate: bool = False) -> dict:
+def _advance(dbp, user: dict, journey: dict) -> dict:
     """Evaluate the journey state machine against the clock."""
     state = journey["state"]
     if state not in {"ON_JOURNEY", "CHECK_IN_REQUIRED", "WARNING"}:
@@ -286,28 +250,54 @@ def _advance(dbp, journey: dict, *, escalate: bool = False) -> dict:
         state = journey["state"]
 
     if overdue > GRACE_MINUTES * 60:
-        target = "EMERGENCY" if escalate else "WARNING"
-        if state != target:
-            repo.transition_journey(
-                dbp,
-                journey["id"],
-                target,
-                from_state=state,
-                detail=(
-                    "grace period exceeded; escalated"
-                    if escalate
-                    else "no check-in after the grace period; user confirmation required"
-                ),
-                escalated_at=iso() if escalate else None,
-            )
-            log_event(
-                "journey.escalated" if escalate else "journey.warning",
-                journey_id=journey["id"],
-                user_id=journey["user_id"],
-            )
-            journey = repo.get_journey(dbp, journey["user_id"], journey["id"])
+        journey, _incident = _escalate_journey(
+            dbp, user, journey, detail="grace period exceeded; automatically escalated"
+        )
+        log_event("journey.escalated", journey_id=journey["id"], user_id=journey["user_id"])
 
     return journey
+
+
+def _escalate_journey(dbp, user: dict, journey: dict, *, detail: str) -> tuple[dict, dict]:
+    """Open an active SOS and notify trusted contacts for a journey escalation."""
+    from . import sos as sos_api
+
+    existing = repo.find_active_incident(dbp, user["id"])
+    if existing:
+        incident = existing
+    else:
+        incident = repo.create_incident(
+            dbp, user["id"], reference=human_reference("SS"), trigger_source="journey", state="COUNTDOWN"
+        )
+        sample = repo.latest_location(dbp, user["id"])
+        if sample:
+            repo.record_incident_location(
+                dbp, incident["id"], sample["lat"], sample["lng"], sample.get("accuracy_m"), "gps"
+            )
+        repo.transition_incident(
+            dbp,
+            incident["id"],
+            "ACTIVE",
+            from_state="COUNTDOWN",
+            detail=f"escalated from Journey Guard {journey['id']}",
+            actor="journey",
+            activated_at=iso(),
+        )
+        incident = repo.get_incident(dbp, user["id"], incident["id"])
+        share = sos_api._mint_share_token(dbp, user, incident, label="Journey Guard escalation")
+        sos_api._notify_contacts(dbp, user, incident, share_url=share["url"])
+        incident = repo.get_incident(dbp, user["id"], incident["id"])
+
+    repo.transition_journey(
+        dbp,
+        journey["id"],
+        "EMERGENCY",
+        from_state=journey["state"],
+        detail=detail,
+        escalated_at=iso(),
+        escalated_incident_id=incident["id"],
+    )
+    return repo.get_journey(dbp, user["id"], journey["id"]), incident
 
 
 def _parse(value):

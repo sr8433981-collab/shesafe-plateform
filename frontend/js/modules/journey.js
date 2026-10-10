@@ -29,14 +29,14 @@ export const BROWSER_LIMITATION =
 export const ESCALATION_LADDER = [
   { state: 'ON_JOURNEY', label: 'Journey started', tone: 'info', detail: 'We are counting down to your expected arrival.' },
   { state: 'CHECK_IN_REQUIRED', label: 'Check-in due', tone: 'caution', detail: 'We are asking if you arrived.' },
-  { state: 'WARNING', label: 'No check-in received', tone: 'danger', detail: 'Nobody is alerted automatically. You escalate, or we do nothing.' },
-  { state: 'EMERGENCY', label: 'Escalated to a real SOS', tone: 'danger', detail: 'A SheSafe incident is open and your contacts are being recorded as alerted.' },
+  { state: 'WARNING', label: 'No check-in received', tone: 'danger', detail: 'After the 3-minute grace period, a real SOS is activated automatically.' },
+  { state: 'EMERGENCY', label: 'Escalated to a real SOS', tone: 'danger', detail: 'A SheSafe incident is open and alert attempts are recorded for your trusted contacts.' },
 ];
 
 const STATE_META = {
   ON_JOURNEY: { label: 'On journey', tone: 'info', hint: 'We will ask you to check in when you should have arrived.' },
   CHECK_IN_REQUIRED: { label: 'Check-in required', tone: 'caution', hint: 'Tap "I arrived safely" if you are safe, or escalate if you need help.' },
-  WARNING: { label: 'No check-in received', tone: 'danger', hint: 'We have not heard from you. Contacts are NOT alerted automatically — escalate if you need help.' },
+  WARNING: { label: 'No check-in received', tone: 'danger', hint: 'We have not heard from you. A real SOS will activate automatically after the 3-minute grace period.' },
   EMERGENCY: { label: 'Escalated to SOS', tone: 'danger', hint: 'A SheSafe SOS incident is open. Use Call 112 to reach emergency services.' },
   ARRIVED: { label: 'Arrived safely', tone: 'safe', hint: 'Checked in. Journey closed.' },
   CANCELLED: { label: 'Cancelled', tone: 'neutral', hint: 'Journey Guard stopped.' },
@@ -100,7 +100,7 @@ function renderJourney(panel, journey, disclaimer) {
             metricTile('Journey status', meta.label))),
 
         contact ? notice('info', `${contact.name} is attached to this journey`,
-          'Their number is on the record for this journey. SheSafe cannot message them without a configured provider — check what happens on escalation before you rely on it.')
+          'If you do not check in by the end of the 3-minute grace period, SheSafe will activate SOS and attempt to alert your trusted contacts. Actual message delivery depends on the notification provider being configured.')
           : notice('caution', 'No trusted contact attached',
             'Nobody is attached to this journey. Add one so the record shows who would be told if you escalate.'),
 
@@ -177,7 +177,7 @@ function journeyForm() {
       el('div', { class: 'field' }, el('label', { for: 'journey-minutes' }, 'Expected travel time'), minutes),
       el('div', { class: 'field' }, el('label', { for: 'journey-contact' }, 'Trusted contact for this journey'), contactSelect)),
     contacts.length
-      ? el('p', { class: 'field__hint' }, 'The contact is attached to the journey record. SheSafe cannot message them without a configured notification provider.')
+      ? el('p', { class: 'field__hint' }, 'If you do not check in by the end of the 3-minute grace period, SOS activates automatically and SheSafe attempts to alert your trusted contacts. Message delivery depends on a configured provider.')
       : notice('caution', 'No active trusted contacts', 'Add at least one contact so somebody is attached to the journey record.'),
     el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, icon('navigate'), 'Start Journey Guard')));
 

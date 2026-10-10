@@ -37,14 +37,22 @@ def find_user_by_identifier(db_path, identifier: str) -> dict[str, Any] | None:
     if not ident:
         return None
     phone = normalise_phone(ident)
+    phone_digits = "".join(character for character in phone if character.isdigit())
+    phone_candidates = {ident, phone, phone_digits}
+    if phone.startswith("+91") and len(phone_digits) == 12:
+        phone_candidates.add(phone_digits[2:])
+    stored_phone = (
+        "replace(replace(replace(replace(replace(phone, ' ', ''), '-', ''), "
+        "'(', ''), ')', ''), '.', '')"
+    )
     row = db.query_one(
         db_path,
-        """
+        f"""
         SELECT * FROM users
-        WHERE lower(email) = ? OR phone = ? OR lower(name) = ?
+        WHERE lower(email) = ? OR lower(name) = ? OR {stored_phone} IN ({", ".join("?" for _ in phone_candidates)})
         LIMIT 1
         """,
-        (ident, phone, ident),
+        (ident, ident, *phone_candidates),
     )
     return db.row_to_dict(row)
 
